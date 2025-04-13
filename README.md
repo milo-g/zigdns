@@ -28,7 +28,7 @@ Add ZigDNS to your `build.zig.zon`:
     .version = "0.1.0",
     .dependencies = .{
         .zigdns = .{
-            .url = "https://github.com/user/zigdns/archive/main.tar.gz",
+            .url = "https://github.com/milo-g/zigdns/archive/main.tar.gz",
         },
     },
 }
