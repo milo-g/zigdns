@@ -196,7 +196,6 @@ zig build example-packet   # Run the packet example
 zig build example-name     # Run the name handling example
 zig build example-response # Run the response example
 zig build example-records  # Run the records example
-zig build example-server   # Run the DNS server example
 ```
 
 ## Building and Testing
