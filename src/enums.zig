@@ -96,4 +96,15 @@ pub const ResourceClass = enum(u16) {
             else => "UNKNOWN",
         };
     }
+
+    pub fn format(
+        self: @This(),
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = fmt;
+        _ = options;
+        try writer.writeAll(self.toString());
+    }
 };

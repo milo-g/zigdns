@@ -30,7 +30,7 @@ pub fn main() !void {
     const encoded_len = fbs.pos;
 
     // Output the encoded packet (hexdump)
-    std.debug.print("Encoded packet ({} bytes):\n", .{encoded_len});
+    std.debug.print("Encoded packet ({d} bytes):\n", .{encoded_len});
     for (buffer[0..encoded_len], 0..) |byte, i| {
         if (i % 16 == 0) std.debug.print("\n{X:0>4}: ", .{i});
         std.debug.print("{X:0>2} ", .{byte});
@@ -50,8 +50,8 @@ pub fn main() !void {
     defer allocator.free(name);
 
     std.debug.print("Decoded Packet:\n", .{});
-    std.debug.print("  ID: {}\n", .{decoded.header.id});
+    std.debug.print("  ID: {d}\n", .{decoded.header.id});
     std.debug.print("  Flags: {b:0>16}\n", .{decoded.header.flags.encodeToInt()});
-    std.debug.print("  Questions: {}\n", .{decoded.header.qd});
-    std.debug.print("  First question: {} {} {}\n", .{name, first_question.type, first_question.class});
+    std.debug.print("  Questions: {d}\n", .{decoded.header.qd});
+    std.debug.print("  First question: {d} {any} {any}\n", .{ name, first_question.type, first_question.class });
 }

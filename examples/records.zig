@@ -24,7 +24,7 @@ pub fn main() !void {
     // Add question
     try packet.addQuestion(.{
         .name = "example.org",
-        .type = .ALL,  // Request all records
+        .type = .ALL, // Request all records
         .class = .IN,
     });
 
@@ -119,7 +119,7 @@ pub fn main() !void {
 
     // Print summary of records
     std.debug.print("DNS Records Summary:\n", .{});
-    std.debug.print("  Total Records: {}\n", .{packet.answers.items.len});
+    std.debug.print("  Total Records: {d}\n", .{packet.answers.items.len});
     std.debug.print("\nIndividual Record Details:\n", .{});
 
     // Print each record
@@ -127,7 +127,7 @@ pub fn main() !void {
         const name = try record.name.toOwnedSlice(allocator);
         defer allocator.free(name);
 
-        std.debug.print("\n#{}: Type={s}, Name={s}, TTL={}\n", .{
+        std.debug.print("\n#{d}: Type={s}, Name={s}, TTL={d}\n", .{
             i + 1,
             record.type.toString(),
             name,
@@ -136,12 +136,12 @@ pub fn main() !void {
 
         switch (record.rdata) {
             .A => |ip| {
-                std.debug.print("  A: {}.{}.{}.{}\n", .{ip[0], ip[1], ip[2], ip[3]});
+                std.debug.print("  A: {d}.{d}.{d}.{d}\n", .{ ip[0], ip[1], ip[2], ip[3] });
             },
             .AAAA => |ip| {
                 std.debug.print("  AAAA: ", .{});
                 for (0..8) |j| {
-                    const word = @as(u16, ip[j*2]) << 8 | ip[j*2+1];
+                    const word = @as(u16, ip[j * 2]) << 8 | ip[j * 2 + 1];
                     if (j > 0) std.debug.print(":", .{});
                     std.debug.print("{x:0>4}", .{word});
                 }
@@ -160,7 +160,7 @@ pub fn main() !void {
             .MX => |mx| {
                 const exchange = try mx.exchange.toOwnedSlice(allocator);
                 defer allocator.free(exchange);
-                std.debug.print("  MX: Priority={} Exchange={s}\n", .{mx.priority, exchange});
+                std.debug.print("  MX: Priority={d} Exchange={s}\n", .{ mx.priority, exchange });
             },
             .TXT => |txt| {
                 std.debug.print("  TXT: \"{s}\"\n", .{txt.data});
@@ -173,7 +173,7 @@ pub fn main() !void {
             .SRV => |srv| {
                 const target = try srv.target.toOwnedSlice(allocator);
                 defer allocator.free(target);
-                std.debug.print("  SRV: Priority={} Weight={} Port={} Target={s}\n", .{
+                std.debug.print("  SRV: Priority={d} Weight={d} Port={d} Target={s}\n", .{
                     srv.priority, srv.weight, srv.port, target,
                 });
             },
@@ -189,5 +189,5 @@ pub fn main() !void {
     try packet.encode(fbs.writer());
     const encoded_len = fbs.pos;
 
-    std.debug.print("\nTotal encoded packet size: {} bytes\n", .{encoded_len});
+    std.debug.print("\nTotal encoded packet size: {d} bytes\n", .{encoded_len});
 }

@@ -34,7 +34,6 @@ pub fn build(b: *std.Build) void {
         "name",
         "response",
         "records",
-        "server",
     };
 
     const examples_step = b.step("examples", "Build all examples");
@@ -46,14 +45,14 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = optimize,
         });
-        
+
         example.root_module.addImport("zigdns", zigdns_module);
         b.installArtifact(example);
 
         const run_example = b.addRunArtifact(example);
         const run_step = b.step("example-" ++ name, "Run the " ++ name ++ " example");
         run_step.dependOn(&run_example.step);
-        
-        examples_step.dependOn(&b.addInstallArtifact(example).step);
+
+        examples_step.dependOn(&b.addInstallArtifact(example, .{}).step);
     }
 }

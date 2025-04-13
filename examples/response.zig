@@ -15,16 +15,16 @@ pub fn main() !void {
     // Setup header as a response
     packet.header.id = 1234;
     packet.header.flags = dns.Flags{
-        .qr = true,     // This is a response
-        .rd = true,     // Recursion desired (copied from query)
-        .ra = true,     // Recursion available
-        .aa = true,     // Authoritative answer
+        .qr = true, // This is a response
+        .rd = true, // Recursion desired (copied from query)
+        .ra = true, // Recursion available
+        .aa = true, // Authoritative answer
     };
 
     // Add the question (mirroring what was asked)
     try packet.addQuestion(.{
-        .name = "example.com", 
-        .type = .A, 
+        .name = "example.com",
+        .type = .A,
         .class = .IN,
     });
 
@@ -41,10 +41,7 @@ pub fn main() !void {
     try packet.addAnswer(.{
         .AAAA = .{
             .name = "example.com",
-            .address = [_]u8{ 
-                0x20, 0x01, 0x4, 0x08, 0x0, 0x0, 0x0, 0x0, 
-                0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0 
-            },
+            .address = [_]u8{ 0x20, 0x01, 0x4, 0x08, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0 },
             .ttl = 3600,
         },
     });
@@ -66,39 +63,39 @@ pub fn main() !void {
 
     // Print the packet contents
     std.debug.print("Constructed DNS Response:\n", .{});
-    std.debug.print("  ID: {}\n", .{packet.header.id});
+    std.debug.print("  ID: {d}\n", .{packet.header.id});
     std.debug.print("  Flags: 0x{X:0>4} ", .{packet.header.flags.encodeToInt()});
-    std.debug.print("(QR={}, AA={}, RD={}, RA={})\n", .{
+    std.debug.print("(QR={d}, AA={d}, RD={d}, RA={d})\n", .{
         @intFromBool(packet.header.flags.qr),
         @intFromBool(packet.header.flags.aa),
         @intFromBool(packet.header.flags.rd),
         @intFromBool(packet.header.flags.ra),
     });
-    std.debug.print("  Questions: {}\n", .{packet.header.qd});
-    std.debug.print("  Answers: {}\n", .{packet.header.an});
+    std.debug.print("  Questions: {d}\n", .{packet.header.qd});
+    std.debug.print("  Answers: {d}\n", .{packet.header.an});
 
     // Display each question
     for (packet.questions.items, 0..) |question, i| {
         const qname = try question.name.toOwnedSlice(allocator);
         defer allocator.free(qname);
-        std.debug.print("  Question {}: {} {} {}\n", .{i+1, qname, question.type, question.class});
+        std.debug.print("  Question {d}: {s} {any} {any}\n", .{ i + 1, qname, question.type, question.class });
     }
 
     // Display each answer
     for (packet.answers.items, 0..) |answer, i| {
         const aname = try answer.name.toOwnedSlice(allocator);
         defer allocator.free(aname);
-        
-        std.debug.print("  Answer {}: {} {} TTL={}\n", .{i+1, aname, answer.type, answer.ttl});
-        
+
+        std.debug.print("  Answer {d}: {s} {any} TTL={d}\n", .{ i + 1, aname, answer.type, answer.ttl });
+
         switch (answer.rdata) {
             .A => |ip| {
-                std.debug.print("    Address: {}.{}.{}.{}\n", .{ip[0], ip[1], ip[2], ip[3]});
+                std.debug.print("    Address: {d}.{d}.{d}.{d}\n", .{ ip[0], ip[1], ip[2], ip[3] });
             },
             .AAAA => |ip| {
                 std.debug.print("    IPv6: ", .{});
                 for (0..8) |j| {
-                    const word: u16 = @as(u16, ip[j*2]) << 8 | ip[j*2+1];
+                    const word: u16 = @as(u16, ip[j * 2]) << 8 | ip[j * 2 + 1];
                     std.debug.print("{x}", .{word});
                     if (j < 7) std.debug.print(":", .{});
                 }
@@ -119,5 +116,5 @@ pub fn main() !void {
     }
 
     // Packet size
-    std.debug.print("\nEncoded packet size: {} bytes\n", .{encoded_len});
+    std.debug.print("\nEncoded packet size: {d} bytes\n", .{encoded_len});
 }
