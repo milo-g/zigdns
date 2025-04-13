@@ -18,6 +18,10 @@ A DNS protocol library for Zig, offering robust functionality for DNS packet par
 - **RFC Compliant**: Implements DNS packet format according to RFC 1035 and related standards
 - **Memory Safe**: Full control over allocations with explicit memory management
 
+### Limitations
+
+- **Pointers**: Currently parsing packets with name pointers is unsupported.
+
 ## Installation
 
 Add ZigDNS to your `build.zig.zon`:
