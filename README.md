@@ -24,24 +24,16 @@ A DNS protocol library for Zig, offering robust functionality for DNS packet par
 
 ## Installation
 
-Add ZigDNS to your `build.zig.zon`:
+Add ZigDNS to your project:
 
-```zig
-.{
-    .name = "your_project",
-    .version = "0.1.0",
-    .dependencies = .{
-        .zigdns = .{
-            .url = "https://github.com/milo-g/zigdns/archive/refs/tags/0.1.0.tar.gz",
-        },
-    },
-}
+```bash
+zig fetch --save="dns" https://github.com/milo-g/zigdns/archive/refs/tags/0.1.0.tar.gz
 ```
 
 Then in your `build.zig`:
 
 ```zig
-const zigdns = b.dependency("zigdns", .{
+const zigdns = b.dependency("dns", .{
     .target = target,
     .optimize = optimize,
 });
