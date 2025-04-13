@@ -174,7 +174,29 @@ pub fn parseDnsPacket(allocator: std.mem.Allocator, buffer: []const u8) !void {
 
 ## Documentation
 
-See the [examples](examples/) for more detailed usage scenarios.
+The library includes several examples demonstrating different aspects of the DNS protocol:
+
+- `packet.zig`: Basic DNS packet construction and parsing
+- `name.zig`: Working with DNS name format, using `toOwnedSlice` and wire format encoding
+- `response.zig`: Creating complex DNS response packets with multiple record types
+- `records.zig`: Demonstration of all supported DNS record types
+- `server.zig`: Simple UDP DNS server implementation
+
+### Building and Running Examples
+
+Build all examples:
+```bash
+zig build examples
+```
+
+Run a specific example:
+```bash
+zig build example-packet   # Run the packet example
+zig build example-name     # Run the name handling example
+zig build example-response # Run the response example
+zig build example-records  # Run the records example
+zig build example-server   # Run the DNS server example
+```
 
 ## Building and Testing
 
