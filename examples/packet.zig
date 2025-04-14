@@ -1,5 +1,5 @@
 const std = @import("std");
-const dns = @import("zigdns");
+const dns = @import("dns");
 
 pub fn main() !void {
     // Create a simple DNS query packet

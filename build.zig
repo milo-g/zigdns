@@ -23,12 +23,10 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run library tests");
     test_step.dependOn(&run_tests.step);
 
-    // Create zigdns module
-    const zigdns_module = b.addModule("zigdns", .{
+    const zigdns_module = b.addModule("dns", .{
         .root_source_file = b.path("src/lib.zig"),
     });
 
-    // Add examples
     const example_names = [_][]const u8{
         "packet",
         "name",
@@ -46,7 +44,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         });
 
-        example.root_module.addImport("zigdns", zigdns_module);
+        example.root_module.addImport("dns", zigdns_module);
         b.installArtifact(example);
 
         const run_example = b.addRunArtifact(example);
