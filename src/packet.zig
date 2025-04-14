@@ -13,7 +13,7 @@ pub const QuestionConfig = struct {
     type: dns.ResourceType = .A,
     class: dns.ResourceClass = .IN,
 
-    // Set if unicast response desired, only applicable for mDNS.
+    /// Set if unicast response desired, only applicable for mDNS.
     unicast: bool = false,
 };
 
@@ -22,36 +22,48 @@ pub const RecordConfig = union(enum) {
         name: []const u8 = "",
         address: [4]u8,
         ttl: u32 = DEFAULT_TTL,
+        ///Set if client should flush record from cache.
+        ///Only applicable for mDNS.
         flush: bool = false,
     },
     AAAA: struct {
         name: []const u8 = "",
         address: [16]u8,
         ttl: u32 = DEFAULT_TTL,
+        ///Set if client should flush record from cache.
+        ///Only applicable for mDNS.
         flush: bool = false,
     },
     TXT: struct {
         name: []const u8 = "",
         text: []const u8,
         ttl: u32 = DEFAULT_TTL,
+        ///Set if client should flush record from cache.
+        ///Only applicable for mDNS.
         flush: bool = false,
     },
     NS: struct {
         name: []const u8 = "",
         nameserver: []const u8 = "",
         ttl: u32 = DEFAULT_TTL,
+        ///Set if client should flush record from cache.
+        ///Only applicable for mDNS.
         flush: bool = false,
     },
     CNAME: struct {
         name: []const u8 = "",
         canonical: []const u8 = "",
         ttl: u32 = DEFAULT_TTL,
+        ///Set if client should flush record from cache.
+        ///Only applicable for mDNS.
         flush: bool = false,
     },
     PTR: struct {
         name: []const u8 = "",
         pointer: []const u8 = "",
         ttl: u32 = DEFAULT_TTL,
+        ///Set if client should flush record from cache.
+        ///Only applicable for mDNS.
         flush: bool = false,
     },
     MX: struct {
@@ -59,6 +71,8 @@ pub const RecordConfig = union(enum) {
         priority: u16 = 0,
         exchange: []const u8 = "",
         ttl: u32 = DEFAULT_TTL,
+        ///Set if client should flush record from cache.
+        ///Only applicable for mDNS.
         flush: bool = false,
     },
     SRV: struct {
@@ -68,6 +82,8 @@ pub const RecordConfig = union(enum) {
         port: u16,
         target: []const u8 = "",
         ttl: u32 = DEFAULT_TTL,
+        ///Set if client should flush record from cache.
+        ///Only applicable for mDNS.
         flush: bool = false,
     },
 };
@@ -404,8 +420,8 @@ test "Answer - cache flush flag handling" {
     try packet.addAnswer(.{ .A = .{ .name = "example.org", .address = [_]u8{ 192, 168, 0, 2 }, .flush = false } });
 
     try testing.expectEqual(@as(u16, 2), packet.header.an);
-    try testing.expect(packet.answers.items[0].flush_cache);
-    try testing.expect(!packet.answers.items[1].flush_cache);
+    try testing.expect(packet.answers.items[0].flush);
+    try testing.expect(!packet.answers.items[1].flush);
 
     // Encode and decode to check if the flags are preserved
     var buffer: [512]u8 = undefined;
@@ -418,8 +434,8 @@ test "Answer - cache flush flag handling" {
     defer decoded_packet.deinit();
 
     try testing.expectEqual(@as(u16, 2), decoded_packet.header.an);
-    try testing.expect(decoded_packet.answers.items[0].flush_cache);
-    try testing.expect(!decoded_packet.answers.items[1].flush_cache);
+    try testing.expect(decoded_packet.answers.items[0].flush);
+    try testing.expect(!decoded_packet.answers.items[1].flush);
 }
 
 test "Mixed mDNS flags - unicast question and flush cache answers" {
@@ -462,9 +478,9 @@ test "Mixed mDNS flags - unicast question and flush cache answers" {
 
     // Verify flags are set properly
     try testing.expect(packet.questions.items[0].unicast);
-    try testing.expect(!packet.answers.items[0].flush_cache); // PTR record
-    try testing.expect(packet.answers.items[1].flush_cache); // SRV record
-    try testing.expect(packet.answers.items[2].flush_cache); // A record
+    try testing.expect(!packet.answers.items[0].flush); // PTR record
+    try testing.expect(packet.answers.items[1].flush); // SRV record
+    try testing.expect(packet.answers.items[2].flush); // A record
 
     // Encode and decode to verify flags are preserved
     var buffer: [1024]u8 = undefined;
@@ -478,9 +494,9 @@ test "Mixed mDNS flags - unicast question and flush cache answers" {
 
     // Verify decoded flags
     try testing.expect(decoded_packet.questions.items[0].unicast);
-    try testing.expect(!decoded_packet.answers.items[0].flush_cache); // PTR record
-    try testing.expect(decoded_packet.answers.items[1].flush_cache); // SRV record
-    try testing.expect(decoded_packet.answers.items[2].flush_cache); // A record
+    try testing.expect(!decoded_packet.answers.items[0].flush); // PTR record
+    try testing.expect(decoded_packet.answers.items[1].flush); // SRV record
+    try testing.expect(decoded_packet.answers.items[2].flush); // A record
 }
 
 test "All record types with flush cache flags" {
@@ -501,9 +517,9 @@ test "All record types with flush cache flags" {
 
     try testing.expectEqual(@as(u16, 8), packet.header.an);
 
-    // Verify all records have flush_cache set
+    // Verify all records have flush set
     for (packet.answers.items) |record| {
-        try testing.expect(record.flush_cache);
+        try testing.expect(record.flush);
     }
 
     // Encode and decode
@@ -516,9 +532,9 @@ test "All record types with flush cache flags" {
     var decoded_packet = try Packet.decode(testing.allocator, read_fbs.reader());
     defer decoded_packet.deinit();
 
-    // Verify all decoded records have flush_cache set
+    // Verify all decoded records have flush set
     try testing.expectEqual(@as(u16, 8), decoded_packet.header.an);
     for (decoded_packet.answers.items) |record| {
-        try testing.expect(record.flush_cache);
+        try testing.expect(record.flush);
     }
 }

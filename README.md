@@ -28,7 +28,7 @@ A DNS protocol library for Zig, offering robust functionality for DNS packet par
 Add ZigDNS to your project:
 
 ```bash
-zig fetch --save="dns" https://github.com/milo-g/zigdns/archive/refs/tags/0.2.0.tar.gz
+zig fetch --save="dns" https://github.com/milo-g/zigdns/archive/refs/tags/0.2.1.tar.gz
 ```
 
 Then in your `build.zig`:
@@ -217,7 +217,7 @@ for (packet.questions.items, 0..) |q, i| {
 }
 
 for (packet.answers.items, 0..) |a, i| {
-    if (a.flush_cache) {
+    if (a.flush) {
         std.debug.print("Flush this record from the cache", .{});
     }
 }

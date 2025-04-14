@@ -14,12 +14,20 @@ const FLUSH_MASK = 0x8000;
 const CLASS_MASK = 0x7FFF;
 
 pub const ResourceRecord = struct {
+    /// Name of record
     name: dns.Name,
+    /// Record type
     type: dns.ResourceType,
-    flush_cache: bool,
+    ///Client should flush cache of this record if set. Used in mDNS only.
+    ///(RFC 6762)
+    flush: bool,
+    /// Record class
     class: dns.ResourceClass,
+    /// Time-to-live for cached record.
     ttl: u32,
+    /// Length of ResourceData
     rlength: u16,
+    /// ResourceData
     rdata: ResourceData,
 
     allocator: Allocator,
@@ -29,7 +37,7 @@ pub const ResourceRecord = struct {
             .allocator = allocator,
             .name = dns.Name.init(allocator),
             .type = dns.ResourceType.ALL,
-            .flush_cache = false,
+            .flush = false,
             .class = dns.ResourceClass.ANY,
             .ttl = 0,
             .rlength = 0,
@@ -47,7 +55,7 @@ pub const ResourceRecord = struct {
         self.type = @enumFromInt(try reader.readInt(std.meta.Tag(dns.ResourceType), .big));
 
         const class_bytes = try reader.readInt(u16, .big);
-        self.flush_cache = (class_bytes & FLUSH_MASK) != 0;
+        self.flush = (class_bytes & FLUSH_MASK) != 0;
         self.class = @enumFromInt(@as(u15, @truncate(class_bytes & CLASS_MASK)));
 
         self.ttl = try reader.readInt(u32, .big);
@@ -67,7 +75,7 @@ pub const ResourceRecord = struct {
         try writer.writeInt(std.meta.Tag(dns.ResourceType), @intFromEnum(self.type), .big);
 
         // Class bytes are | F (1) | CLASS (15) |
-        const class_bytes: u16 = (@as(u16, @intFromBool(self.flush_cache)) << 15) | @as(u16, @intFromEnum(self.class));
+        const class_bytes: u16 = (@as(u16, @intFromBool(self.flush)) << 15) | @as(u16, @intFromEnum(self.class));
         try writer.writeInt(u16, class_bytes, .big);
 
         try writer.writeInt(u32, self.ttl, .big);
@@ -83,7 +91,7 @@ pub const ResourceRecord = struct {
         record.rlength = record.rdata.length();
         record.type = .A;
         record.class = .IN;
-        record.flush_cache = flush;
+        record.flush = flush;
 
         return record;
     }
@@ -96,7 +104,7 @@ pub const ResourceRecord = struct {
         record.rlength = record.rdata.length();
         record.type = .AAAA;
         record.class = .IN;
-        record.flush_cache = flush;
+        record.flush = flush;
 
         return record;
     }
@@ -109,7 +117,7 @@ pub const ResourceRecord = struct {
         record.rlength = record.rdata.length();
         record.type = .CNAME;
         record.class = .IN;
-        record.flush_cache = flush;
+        record.flush = flush;
 
         return record;
     }
@@ -122,7 +130,7 @@ pub const ResourceRecord = struct {
         record.rlength = record.rdata.length();
         record.type = .NS;
         record.class = .IN;
-        record.flush_cache = flush;
+        record.flush = flush;
 
         return record;
     }
@@ -135,7 +143,7 @@ pub const ResourceRecord = struct {
         record.rlength = record.rdata.length();
         record.type = .PTR;
         record.class = .IN;
-        record.flush_cache = flush;
+        record.flush = flush;
 
         return record;
     }
@@ -150,7 +158,7 @@ pub const ResourceRecord = struct {
         record.rlength = record.rdata.length();
         record.type = .MX;
         record.class = .IN;
-        record.flush_cache = flush;
+        record.flush = flush;
 
         return record;
     }
@@ -165,7 +173,7 @@ pub const ResourceRecord = struct {
         record.rlength = record.rdata.length();
         record.type = .TXT;
         record.class = .IN;
-        record.flush_cache = flush;
+        record.flush = flush;
 
         return record;
     }
@@ -180,7 +188,7 @@ pub const ResourceRecord = struct {
         record.rlength = record.rdata.length();
         record.type = .SRV;
         record.class = .IN;
-        record.flush_cache = flush;
+        record.flush = flush;
 
         return record;
     }
@@ -758,8 +766,8 @@ test "ResourceRecord - Flush cache flag parsing" {
 
     try record.parse(reader);
 
-    // Verify flush_cache flag is set
-    try testing.expect(record.flush_cache);
+    // Verify flush flag is set
+    try testing.expect(record.flush);
     try testing.expectEqual(dns.ResourceClass.IN, record.class);
 }
 
@@ -782,22 +790,22 @@ test "ResourceRecord - Flush cache flag not set during parsing" {
 
     try record.parse(reader);
 
-    // Verify flush_cache flag is not set
-    try testing.expect(!record.flush_cache);
+    // Verify flush flag is not set
+    try testing.expect(!record.flush);
     try testing.expectEqual(dns.ResourceClass.IN, record.class);
 }
 
 test "ResourceRecord - Encode with flush cache flag" {
     // Test both with and without flush cache flag
     const test_cases = [_]struct {
-        flush_cache: bool,
+        flush: bool,
         class: dns.ResourceClass,
         expected: u16,
     }{
-        .{ .flush_cache = false, .class = dns.ResourceClass.IN, .expected = 0x0001 },
-        .{ .flush_cache = true, .class = dns.ResourceClass.IN, .expected = 0x8001 },
-        .{ .flush_cache = false, .class = dns.ResourceClass.CS, .expected = 0x0002 },
-        .{ .flush_cache = true, .class = dns.ResourceClass.CS, .expected = 0x8002 },
+        .{ .flush = false, .class = dns.ResourceClass.IN, .expected = 0x0001 },
+        .{ .flush = true, .class = dns.ResourceClass.IN, .expected = 0x8001 },
+        .{ .flush = false, .class = dns.ResourceClass.CS, .expected = 0x0002 },
+        .{ .flush = true, .class = dns.ResourceClass.CS, .expected = 0x8002 },
     };
 
     for (test_cases) |tc| {
@@ -806,7 +814,7 @@ test "ResourceRecord - Encode with flush cache flag" {
             .name = dns.Name.init(testing.allocator),
             .type = dns.ResourceType.A,
             .class = tc.class,
-            .flush_cache = tc.flush_cache,
+            .flush = tc.flush,
             .ttl = 3600,
             .rlength = 4,
             .rdata = .{ .A = [4]u8{ 192, 168, 1, 1 } },
@@ -830,12 +838,12 @@ test "ResourceRecord - Encode with flush cache flag" {
 
 test "ResourceRecord - Round trip with flush cache flag" {
     // Create a full record with flush cache flag set
-    var record = try ResourceRecord.createA(testing.allocator, "example.com", [4]u8{ 192, 168, 1, 1 }, 3600, true // flush_cache flag
+    var record = try ResourceRecord.createA(testing.allocator, "example.com", [4]u8{ 192, 168, 1, 1 }, 3600, true // flush flag
     );
     defer record.deinit();
 
     // Verify the flag is set correctly in the created record
-    try testing.expect(record.flush_cache);
+    try testing.expect(record.flush);
 
     // Encode to wire format
     var buffer: [256]u8 = undefined;
@@ -848,8 +856,8 @@ test "ResourceRecord - Round trip with flush cache flag" {
     var parsed_record = try ResourceRecord.decode(testing.allocator, read_fbs.reader());
     defer parsed_record.deinit();
 
-    // Verify flush_cache flag was preserved
-    try testing.expect(parsed_record.flush_cache);
+    // Verify flush flag was preserved
+    try testing.expect(parsed_record.flush);
     try testing.expectEqual(record.class, parsed_record.class);
     try testing.expectEqual(record.type, parsed_record.type);
     try testing.expectEqual(record.ttl, parsed_record.ttl);
@@ -864,14 +872,14 @@ test "ResourceRecord - Round trip with flush cache flag" {
 }
 
 test "ResourceRecord - Factory functions preserve flush cache flag" {
-    // Test a few factory functions with flush_cache = true
+    // Test a few factory functions with flush = true
 
     // A record
     {
-        var record = try ResourceRecord.createA(testing.allocator, "example.com", [4]u8{ 192, 168, 1, 1 }, 3600, true // flush_cache flag
+        var record = try ResourceRecord.createA(testing.allocator, "example.com", [4]u8{ 192, 168, 1, 1 }, 3600, true // flush flag
         );
         defer record.deinit();
-        try testing.expect(record.flush_cache);
+        try testing.expect(record.flush);
     }
 
     // AAAA record
@@ -879,18 +887,18 @@ test "ResourceRecord - Factory functions preserve flush cache flag" {
         var record = try ResourceRecord.createAAAA(testing.allocator, "example.com", [16]u8{
             0x20, 0x01, 0x0d, 0xb8, 0x85, 0xa3, 0x00, 0x00,
             0x00, 0x00, 0x8a, 0x2e, 0x03, 0x70, 0x73, 0x34,
-        }, 3600, true // flush_cache flag
+        }, 3600, true // flush flag
         );
         defer record.deinit();
-        try testing.expect(record.flush_cache);
+        try testing.expect(record.flush);
     }
 
     // TXT record
     {
-        var record = try ResourceRecord.createTXT(testing.allocator, "example.com", "v=spf1 include:_spf.example.com ~all", 3600, true // flush_cache flag
+        var record = try ResourceRecord.createTXT(testing.allocator, "example.com", "v=spf1 include:_spf.example.com ~all", 3600, true // flush flag
         );
         defer record.deinit();
-        try testing.expect(record.flush_cache);
+        try testing.expect(record.flush);
     }
 }
 
