@@ -33,12 +33,12 @@ zig fetch --save="dns" https://github.com/milo-g/zigdns/archive/refs/tags/0.1.1.
 Then in your `build.zig`:
 
 ```zig
-const zigdns = b.dependency("dns", .{
+const dns = b.dependency("dns", .{
     .target = target,
     .optimize = optimize,
 });
 
-exe.root_module.addModule("dns", zigdns.module("dns"));
+exe.root_module.addImport("dns", dns.module("dns"));
 ```
 
 ## Usage
