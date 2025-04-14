@@ -17,6 +17,7 @@ A DNS protocol library for Zig, offering robust functionality for DNS packet par
 - **Flexible API**: Simple interface for creating DNS queries and responses
 - **RFC Compliant**: Implements DNS packet format according to RFC 1035 and related standards
 - **Memory Safe**: Full control over allocations with explicit memory management
+- **Support for mDNS**: Implements mDNS query/record specific flags for unicast-desired and flush-cache.
 
 ### Limitations
 
@@ -27,7 +28,7 @@ A DNS protocol library for Zig, offering robust functionality for DNS packet par
 Add ZigDNS to your project:
 
 ```bash
-zig fetch --save="dns" https://github.com/milo-g/zigdns/archive/refs/tags/0.1.1.tar.gz
+zig fetch --save="dns" https://github.com/milo-g/zigdns/archive/refs/tags/0.1.2.tar.gz
 ```
 
 Then in your `build.zig`:
@@ -103,6 +104,7 @@ pub fn createResponse(allocator: std.mem.Allocator) !dns.Packet {
     try packet.addQuestion(.{
         .name = "example.com",
         .type = .A,
+        .class = .IN,
     });
 
     // Add an A record answer
@@ -161,8 +163,65 @@ pub fn parseDnsPacket(allocator: std.mem.Allocator, buffer: []const u8) !void {
             name,
             a.type.toString(),
         });
+
+        switch (a.type) {
+            .A => {
+                std.debug.print("Handling A record...\n", .{});
+
+                const addr = a.rdata.A;
+                std.debug.print("Address is {d}.{d}.{d}.{d}\n", .{addr[0], addr[1], addr[2], addr[3] });
+            },
+            .CNAME => {
+                std.debug.print("Handling CNAME record...\n", .{});
+
+                const canonical = a.rdata.CNAME.toOwnedSlice(allocator);
+                defer allocator.free(canonical);
+                std.debug.print("Canonical name: {s}", .{canonical});
+            },
+            ...
+            else => break
+        }
     }
 }
+```
+
+### mDNS Support
+
+```zig
+...
+
+// Creating packets
+try packet.addQuestion(.{
+    .name = "example.com",
+    .type = .A,
+    .class = .IN,
+    .unicast = true, // unicast response desired.
+});
+
+try packet.addAnswer(.{
+    .A = .{
+        .name = "example.com",
+        .address = [_]u8{ 192, 168, 1, 0 },
+        .ttl = 3600,
+        .flush = true, // clients should flush cache for this record.
+    }
+});
+
+...
+
+// Reading packets.
+for (packet.questions.items, 0..) |q, i| {
+    if (q.unicast) {
+        std.debug.print("Client requesting a unicast response", .{});
+    }
+}
+
+for (packet.answers.items, 0..) |a, i| {
+    if (a.flush_cache) {
+        std.debug.print("Flush this record from the cache", .{});
+    }
+}
+
 ```
 
 ## Documentation
