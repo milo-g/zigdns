@@ -12,6 +12,9 @@ pub const QuestionConfig = struct {
     name: []const u8,
     type: dns.ResourceType = .A,
     class: dns.ResourceClass = .IN,
+
+    // Set if unicast response desired, only applicable for mDNS.
+    unicast: bool = false,
 };
 
 pub const RecordConfig = union(enum) {
@@ -19,37 +22,44 @@ pub const RecordConfig = union(enum) {
         name: []const u8 = "",
         address: [4]u8,
         ttl: u32 = DEFAULT_TTL,
+        flush: bool = false,
     },
     AAAA: struct {
         name: []const u8 = "",
         address: [16]u8,
         ttl: u32 = DEFAULT_TTL,
+        flush: bool = false,
     },
     TXT: struct {
         name: []const u8 = "",
         text: []const u8,
         ttl: u32 = DEFAULT_TTL,
+        flush: bool = false,
     },
     NS: struct {
         name: []const u8 = "",
         nameserver: []const u8 = "",
         ttl: u32 = DEFAULT_TTL,
+        flush: bool = false,
     },
     CNAME: struct {
         name: []const u8 = "",
         canonical: []const u8 = "",
         ttl: u32 = DEFAULT_TTL,
+        flush: bool = false,
     },
     PTR: struct {
         name: []const u8 = "",
         pointer: []const u8 = "",
         ttl: u32 = DEFAULT_TTL,
+        flush: bool = false,
     },
     MX: struct {
         name: []const u8,
         priority: u16 = 0,
         exchange: []const u8 = "",
         ttl: u32 = DEFAULT_TTL,
+        flush: bool = false,
     },
     SRV: struct {
         name: []const u8,
@@ -58,6 +68,7 @@ pub const RecordConfig = union(enum) {
         port: u16,
         target: []const u8 = "",
         ttl: u32 = DEFAULT_TTL,
+        flush: bool = false,
     },
 };
 
@@ -102,7 +113,6 @@ pub const Packet = struct {
         }
 
         for (0..self.header.an) |_| {
-            std.debug.print("answers\n", .{});
             const answer = try dns.ResourceRecord.decode(self.allocator, reader);
             try self.answers.append(answer);
         }
@@ -146,7 +156,7 @@ pub const Packet = struct {
     }
 
     pub fn addQuestion(self: *Packet, config: QuestionConfig) !void {
-        const question = try dns.Question.create(self.allocator, config.name, config.type, config.class);
+        const question = try dns.Question.create(self.allocator, config.name, config.type, config.class, config.unicast);
         try self.questions.append(question);
 
         self.header.qd += 1;
@@ -161,14 +171,14 @@ pub const Packet = struct {
 
     fn createRecord(self: *Packet, config: RecordConfig) !dns.ResourceRecord {
         return switch (config) {
-            .A => |a| try dns.ResourceRecord.createA(self.allocator, a.name, a.address, a.ttl),
-            .AAAA => |a| try dns.ResourceRecord.createAAAA(self.allocator, a.name, a.address, a.ttl),
-            .TXT => |txt| try dns.ResourceRecord.createTXT(self.allocator, txt.name, txt.text, txt.ttl),
-            .CNAME => |cname| try dns.ResourceRecord.createCNAME(self.allocator, cname.name, cname.canonical, cname.ttl),
-            .NS => |ns| try dns.ResourceRecord.createNS(self.allocator, ns.name, ns.nameserver, ns.ttl),
-            .PTR => |ptr| try dns.ResourceRecord.createPTR(self.allocator, ptr.name, ptr.pointer, ptr.ttl),
-            .MX => |mx| try dns.ResourceRecord.createMX(self.allocator, mx.name, mx.priority, mx.exchange, mx.ttl),
-            .SRV => |srv| try dns.ResourceRecord.createSRV(self.allocator, srv.name, srv.priority, srv.weight, srv.port, srv.target, srv.ttl),
+            .A => |a| try dns.ResourceRecord.createA(self.allocator, a.name, a.address, a.ttl, a.flush),
+            .AAAA => |a| try dns.ResourceRecord.createAAAA(self.allocator, a.name, a.address, a.ttl, a.flush),
+            .TXT => |txt| try dns.ResourceRecord.createTXT(self.allocator, txt.name, txt.text, txt.ttl, txt.flush),
+            .CNAME => |cname| try dns.ResourceRecord.createCNAME(self.allocator, cname.name, cname.canonical, cname.ttl, cname.flush),
+            .NS => |ns| try dns.ResourceRecord.createNS(self.allocator, ns.name, ns.nameserver, ns.ttl, ns.flush),
+            .PTR => |ptr| try dns.ResourceRecord.createPTR(self.allocator, ptr.name, ptr.pointer, ptr.ttl, ptr.flush),
+            .MX => |mx| try dns.ResourceRecord.createMX(self.allocator, mx.name, mx.priority, mx.exchange, mx.ttl, mx.flush),
+            .SRV => |srv| try dns.ResourceRecord.createSRV(self.allocator, srv.name, srv.priority, srv.weight, srv.port, srv.target, srv.ttl, srv.flush),
         };
     }
 };
@@ -339,4 +349,176 @@ test "addAnswer - with optional name" {
     try packet.addAnswer(.{ .A = .{ .address = [_]u8{ 192, 168, 0, 2 } } });
 
     try testing.expectEqual(@as(u16, 2), packet.header.an);
+}
+
+test "Question - unicast flag handling" {
+    const allocator = testing.allocator;
+
+    var packet = dns.Packet.init(allocator);
+    defer packet.deinit();
+
+    // Add question with unicast flag set
+    try packet.addQuestion(.{
+        .name = "example.com",
+        .type = .A,
+        .class = .IN,
+        .unicast = true,
+    });
+
+    // Add another question without unicast flag
+    try packet.addQuestion(.{
+        .name = "example.org",
+        .type = .AAAA,
+        .unicast = false,
+    });
+
+    try testing.expectEqual(@as(u16, 2), packet.header.qd);
+    try testing.expect(packet.questions.items[0].unicast);
+    try testing.expect(!packet.questions.items[1].unicast);
+
+    // Encode and decode to check if the flags are preserved
+    var buffer: [512]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&buffer);
+    try packet.encode(fbs.writer());
+    const encoded_len = fbs.pos;
+
+    var read_fbs = std.io.fixedBufferStream(buffer[0..encoded_len]);
+    var decoded_packet = try Packet.decode(testing.allocator, read_fbs.reader());
+    defer decoded_packet.deinit();
+
+    try testing.expectEqual(@as(u16, 2), decoded_packet.header.qd);
+    try testing.expect(decoded_packet.questions.items[0].unicast);
+    try testing.expect(!decoded_packet.questions.items[1].unicast);
+}
+
+test "Answer - cache flush flag handling" {
+    const allocator = testing.allocator;
+
+    var packet = dns.Packet.init(allocator);
+    defer packet.deinit();
+
+    // Add answer with flush flag set
+    try packet.addAnswer(.{ .A = .{ .name = "example.com", .address = [_]u8{ 192, 168, 0, 1 }, .flush = true } });
+
+    // Add answer without flush flag
+    try packet.addAnswer(.{ .A = .{ .name = "example.org", .address = [_]u8{ 192, 168, 0, 2 }, .flush = false } });
+
+    try testing.expectEqual(@as(u16, 2), packet.header.an);
+    try testing.expect(packet.answers.items[0].flush_cache);
+    try testing.expect(!packet.answers.items[1].flush_cache);
+
+    // Encode and decode to check if the flags are preserved
+    var buffer: [512]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&buffer);
+    try packet.encode(fbs.writer());
+    const encoded_len = fbs.pos;
+
+    var read_fbs = std.io.fixedBufferStream(buffer[0..encoded_len]);
+    var decoded_packet = try Packet.decode(testing.allocator, read_fbs.reader());
+    defer decoded_packet.deinit();
+
+    try testing.expectEqual(@as(u16, 2), decoded_packet.header.an);
+    try testing.expect(decoded_packet.answers.items[0].flush_cache);
+    try testing.expect(!decoded_packet.answers.items[1].flush_cache);
+}
+
+test "Mixed mDNS flags - unicast question and flush cache answers" {
+    const allocator = testing.allocator;
+
+    var packet = dns.Packet.init(allocator);
+    defer packet.deinit();
+
+    // Add question with unicast response requested
+    try packet.addQuestion(.{
+        .name = "_http._tcp.local",
+        .type = .PTR,
+        .unicast = true,
+    });
+
+    // Add multiple record types with flush cache set
+    try packet.addAnswer(.{
+        .PTR = .{
+            .name = "_http._tcp.local",
+            .pointer = "My Web Service._http._tcp.local",
+            .flush = false, // PTR records typically don't use cache flush
+        },
+    });
+
+    try packet.addAnswer(.{
+        .SRV = .{
+            .name = "My Web Service._http._tcp.local",
+            .priority = 0,
+            .weight = 0,
+            .port = 80,
+            .target = "myserver.local",
+            .flush = true, // SRV records often use cache flush
+        },
+    });
+
+    try packet.addAnswer(.{ .A = .{ .name = "myserver.local", .address = [_]u8{ 192, 168, 1, 100 }, .flush = true } });
+
+    try testing.expectEqual(@as(u16, 1), packet.header.qd);
+    try testing.expectEqual(@as(u16, 3), packet.header.an);
+
+    // Verify flags are set properly
+    try testing.expect(packet.questions.items[0].unicast);
+    try testing.expect(!packet.answers.items[0].flush_cache); // PTR record
+    try testing.expect(packet.answers.items[1].flush_cache); // SRV record
+    try testing.expect(packet.answers.items[2].flush_cache); // A record
+
+    // Encode and decode to verify flags are preserved
+    var buffer: [1024]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&buffer);
+    try packet.encode(fbs.writer());
+    const encoded_len = fbs.pos;
+
+    var read_fbs = std.io.fixedBufferStream(buffer[0..encoded_len]);
+    var decoded_packet = try Packet.decode(testing.allocator, read_fbs.reader());
+    defer decoded_packet.deinit();
+
+    // Verify decoded flags
+    try testing.expect(decoded_packet.questions.items[0].unicast);
+    try testing.expect(!decoded_packet.answers.items[0].flush_cache); // PTR record
+    try testing.expect(decoded_packet.answers.items[1].flush_cache); // SRV record
+    try testing.expect(decoded_packet.answers.items[2].flush_cache); // A record
+}
+
+test "All record types with flush cache flags" {
+    const allocator = testing.allocator;
+
+    var packet = dns.Packet.init(allocator);
+    defer packet.deinit();
+
+    // Test all record types with flush cache set
+    try packet.addAnswer(.{ .A = .{ .name = "example.com", .address = [_]u8{ 192, 168, 0, 1 }, .flush = true } });
+    try packet.addAnswer(.{ .AAAA = .{ .name = "example.com", .address = [_]u8{ 0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 }, .flush = true } });
+    try packet.addAnswer(.{ .TXT = .{ .name = "example.com", .text = "text record", .flush = true } });
+    try packet.addAnswer(.{ .CNAME = .{ .name = "example.com", .canonical = "example.org", .flush = true } });
+    try packet.addAnswer(.{ .NS = .{ .name = "example.com", .nameserver = "ns.example.com", .flush = true } });
+    try packet.addAnswer(.{ .PTR = .{ .name = "example.com", .pointer = "ptr.example.com", .flush = true } });
+    try packet.addAnswer(.{ .MX = .{ .name = "example.com", .priority = 10, .exchange = "mail.example.com", .flush = true } });
+    try packet.addAnswer(.{ .SRV = .{ .name = "example.com", .priority = 0, .weight = 0, .port = 80, .target = "target.example.com", .flush = true } });
+
+    try testing.expectEqual(@as(u16, 8), packet.header.an);
+
+    // Verify all records have flush_cache set
+    for (packet.answers.items) |record| {
+        try testing.expect(record.flush_cache);
+    }
+
+    // Encode and decode
+    var buffer: [2048]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&buffer);
+    try packet.encode(fbs.writer());
+    const encoded_len = fbs.pos;
+
+    var read_fbs = std.io.fixedBufferStream(buffer[0..encoded_len]);
+    var decoded_packet = try Packet.decode(testing.allocator, read_fbs.reader());
+    defer decoded_packet.deinit();
+
+    // Verify all decoded records have flush_cache set
+    try testing.expectEqual(@as(u16, 8), decoded_packet.header.an);
+    for (decoded_packet.answers.items) |record| {
+        try testing.expect(record.flush_cache);
+    }
 }

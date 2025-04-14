@@ -61,7 +61,7 @@ pub const ResourceType = enum(u16) {
 
 /// DNS Resource Record Classes
 /// Based on IANA registry of DNS parameters
-pub const ResourceClass = enum(u16) {
+pub const ResourceClass = enum(u15) {
     /// Internet
     IN = 1,
     /// CSNET (obsolete)
@@ -78,7 +78,7 @@ pub const ResourceClass = enum(u16) {
     /// Allows handling of unknown resource classes
     UNKNOWN = 0,
 
-    pub fn fromInt(value: u16) ResourceClass {
+    pub fn fromInt(value: u15) ResourceClass {
         return switch (value) {
             1 => .IN,
             2 => .CS,

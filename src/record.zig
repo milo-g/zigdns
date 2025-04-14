@@ -10,9 +10,13 @@ const CLASS_LEN = 2;
 const TTL_LEN = 4;
 const RDLEN_LEN = 2;
 
+const FLUSH_MASK = 0x8000;
+const CLASS_MASK = 0x7FFF;
+
 pub const ResourceRecord = struct {
     name: dns.Name,
     type: dns.ResourceType,
+    flush_cache: bool,
     class: dns.ResourceClass,
     ttl: u32,
     rlength: u16,
@@ -25,6 +29,7 @@ pub const ResourceRecord = struct {
             .allocator = allocator,
             .name = dns.Name.init(allocator),
             .type = dns.ResourceType.ALL,
+            .flush_cache = false,
             .class = dns.ResourceClass.ANY,
             .ttl = 0,
             .rlength = 0,
@@ -40,7 +45,11 @@ pub const ResourceRecord = struct {
     pub fn parse(self: *ResourceRecord, reader: anytype) !void {
         try self.name.parse(reader);
         self.type = @enumFromInt(try reader.readInt(std.meta.Tag(dns.ResourceType), .big));
-        self.class = @enumFromInt(try reader.readInt(std.meta.Tag(dns.ResourceClass), .big));
+
+        const class_bytes = try reader.readInt(u16, .big);
+        self.flush_cache = (class_bytes & FLUSH_MASK) != 0;
+        self.class = @enumFromInt(@as(u15, @truncate(class_bytes & CLASS_MASK)));
+
         self.ttl = try reader.readInt(u32, .big);
         self.rlength = try reader.readInt(u16, .big);
         self.rdata = try ResourceData.decode(self.allocator, reader, self.type, self.rlength);
@@ -56,13 +65,17 @@ pub const ResourceRecord = struct {
     pub fn encode(self: *const ResourceRecord, writer: anytype) !void {
         try self.name.encode(writer);
         try writer.writeInt(std.meta.Tag(dns.ResourceType), @intFromEnum(self.type), .big);
-        try writer.writeInt(std.meta.Tag(dns.ResourceClass), @intFromEnum(self.class), .big);
+
+        // Class bytes are | F (1) | CLASS (15) |
+        const class_bytes: u16 = (@as(u16, @intFromBool(self.flush_cache)) << 15) | @as(u16, @intFromEnum(self.class));
+        try writer.writeInt(u16, class_bytes, .big);
+
         try writer.writeInt(u32, self.ttl, .big);
         try writer.writeInt(u16, self.rlength, .big);
         try self.rdata.encode(writer);
     }
 
-    pub fn createA(allocator: Allocator, name: []const u8, address: [4]u8, ttl: u32) !ResourceRecord {
+    pub fn createA(allocator: Allocator, name: []const u8, address: [4]u8, ttl: u32, flush: bool) !ResourceRecord {
         var record = ResourceRecord.init(allocator);
         record.name = try dns.Name.fromString(allocator, name);
         record.ttl = ttl;
@@ -70,11 +83,12 @@ pub const ResourceRecord = struct {
         record.rlength = record.rdata.length();
         record.type = .A;
         record.class = .IN;
+        record.flush_cache = flush;
 
         return record;
     }
 
-    pub fn createAAAA(allocator: Allocator, name: []const u8, address: [16]u8, ttl: u32) !ResourceRecord {
+    pub fn createAAAA(allocator: Allocator, name: []const u8, address: [16]u8, ttl: u32, flush: bool) !ResourceRecord {
         var record = ResourceRecord.init(allocator);
         record.name = try dns.Name.fromString(allocator, name);
         record.ttl = ttl;
@@ -82,11 +96,12 @@ pub const ResourceRecord = struct {
         record.rlength = record.rdata.length();
         record.type = .AAAA;
         record.class = .IN;
+        record.flush_cache = flush;
 
         return record;
     }
 
-    pub fn createCNAME(allocator: Allocator, name: []const u8, canonical: []const u8, ttl: u32) !ResourceRecord {
+    pub fn createCNAME(allocator: Allocator, name: []const u8, canonical: []const u8, ttl: u32, flush: bool) !ResourceRecord {
         var record = ResourceRecord.init(allocator);
         record.name = try dns.Name.fromString(allocator, name);
         record.ttl = ttl;
@@ -94,11 +109,12 @@ pub const ResourceRecord = struct {
         record.rlength = record.rdata.length();
         record.type = .CNAME;
         record.class = .IN;
+        record.flush_cache = flush;
 
         return record;
     }
 
-    pub fn createNS(allocator: Allocator, name: []const u8, nameserver: []const u8, ttl: u32) !ResourceRecord {
+    pub fn createNS(allocator: Allocator, name: []const u8, nameserver: []const u8, ttl: u32, flush: bool) !ResourceRecord {
         var record = ResourceRecord.init(allocator);
         record.name = try dns.Name.fromString(allocator, name);
         record.ttl = ttl;
@@ -106,11 +122,12 @@ pub const ResourceRecord = struct {
         record.rlength = record.rdata.length();
         record.type = .NS;
         record.class = .IN;
+        record.flush_cache = flush;
 
         return record;
     }
 
-    pub fn createPTR(allocator: Allocator, name: []const u8, ptr: []const u8, ttl: u32) !ResourceRecord {
+    pub fn createPTR(allocator: Allocator, name: []const u8, ptr: []const u8, ttl: u32, flush: bool) !ResourceRecord {
         var record = ResourceRecord.init(allocator);
         record.name = try dns.Name.fromString(allocator, name);
         record.ttl = ttl;
@@ -118,11 +135,12 @@ pub const ResourceRecord = struct {
         record.rlength = record.rdata.length();
         record.type = .PTR;
         record.class = .IN;
+        record.flush_cache = flush;
 
         return record;
     }
 
-    pub fn createMX(allocator: Allocator, name: []const u8, priority: u16, exchange: []const u8, ttl: u32) !ResourceRecord {
+    pub fn createMX(allocator: Allocator, name: []const u8, priority: u16, exchange: []const u8, ttl: u32, flush: bool) !ResourceRecord {
         var record = ResourceRecord.init(allocator);
         record.name = try dns.Name.fromString(allocator, name);
         record.ttl = ttl;
@@ -132,11 +150,12 @@ pub const ResourceRecord = struct {
         record.rlength = record.rdata.length();
         record.type = .MX;
         record.class = .IN;
+        record.flush_cache = flush;
 
         return record;
     }
 
-    pub fn createTXT(allocator: Allocator, name: []const u8, txt: []const u8, ttl: u32) !ResourceRecord {
+    pub fn createTXT(allocator: Allocator, name: []const u8, txt: []const u8, ttl: u32, flush: bool) !ResourceRecord {
         var record = ResourceRecord.init(allocator);
         record.name = try dns.Name.fromString(allocator, name);
         record.ttl = ttl;
@@ -146,11 +165,12 @@ pub const ResourceRecord = struct {
         record.rlength = record.rdata.length();
         record.type = .TXT;
         record.class = .IN;
+        record.flush_cache = flush;
 
         return record;
     }
 
-    pub fn createSRV(allocator: Allocator, name: []const u8, priority: u16, weight: u16, port: u16, target: []const u8, ttl: u32) !ResourceRecord {
+    pub fn createSRV(allocator: Allocator, name: []const u8, priority: u16, weight: u16, port: u16, target: []const u8, ttl: u32, flush: bool) !ResourceRecord {
         var record = ResourceRecord.init(allocator);
         record.name = try dns.Name.fromString(allocator, name);
         record.ttl = ttl;
@@ -160,6 +180,7 @@ pub const ResourceRecord = struct {
         record.rlength = record.rdata.length();
         record.type = .SRV;
         record.class = .IN;
+        record.flush_cache = flush;
 
         return record;
     }
@@ -645,7 +666,7 @@ test "ResourceData - AAAA record encoding and decoding" {
 }
 
 test "ResourceRecord - createSRV function" {
-    const record = try ResourceRecord.createSRV(testing.allocator, "_http._tcp.example.com", 10, 20, 80, "web.example.com", 3600);
+    const record = try ResourceRecord.createSRV(testing.allocator, "_http._tcp.example.com", 10, 20, 80, "web.example.com", 3600, false);
     defer record.deinit();
 
     try testing.expectEqual(dns.ResourceType.SRV, record.type);
@@ -716,4 +737,173 @@ test "ResourceRecord - length calculation for all record types" {
         .allocator = allocator,
     } };
     try testing.expectEqual(@as(u16, @truncate(txt_data.len)), txt_record.length());
+}
+
+test "ResourceRecord - Flush cache flag parsing" {
+    // Sample record with flush cache flag set (high bit of class field)
+    const flush_data = [_]u8{
+        0x00, // Empty domain name (root)
+        0x00, 0x01, // A record
+        0x80, 0x01, // IN class with flush cache bit set (0x8001)
+        0x00, 0x00, 0x0E, 0x10, // TTL (3600)
+        0x00, 0x04, // RDLEN (4)
+        192, 168, 1, 1, // IP address
+    };
+
+    var stream = std.io.fixedBufferStream(&flush_data);
+    const reader = stream.reader();
+
+    var record = ResourceRecord.init(testing.allocator);
+    defer record.deinit();
+
+    try record.parse(reader);
+
+    // Verify flush_cache flag is set
+    try testing.expect(record.flush_cache);
+    try testing.expectEqual(dns.ResourceClass.IN, record.class);
+}
+
+test "ResourceRecord - Flush cache flag not set during parsing" {
+    // Sample record without flush cache flag set
+    const no_flush_data = [_]u8{
+        0x00, // Empty domain name (root)
+        0x00, 0x01, // A record
+        0x00, 0x01, // IN class without flush cache bit
+        0x00, 0x00, 0x0E, 0x10, // TTL (3600)
+        0x00, 0x04, // RDLEN (4)
+        192, 168, 1, 1, // IP address
+    };
+
+    var stream = std.io.fixedBufferStream(&no_flush_data);
+    const reader = stream.reader();
+
+    var record = ResourceRecord.init(testing.allocator);
+    defer record.deinit();
+
+    try record.parse(reader);
+
+    // Verify flush_cache flag is not set
+    try testing.expect(!record.flush_cache);
+    try testing.expectEqual(dns.ResourceClass.IN, record.class);
+}
+
+test "ResourceRecord - Encode with flush cache flag" {
+    // Test both with and without flush cache flag
+    const test_cases = [_]struct {
+        flush_cache: bool,
+        class: dns.ResourceClass,
+        expected: u16,
+    }{
+        .{ .flush_cache = false, .class = dns.ResourceClass.IN, .expected = 0x0001 },
+        .{ .flush_cache = true, .class = dns.ResourceClass.IN, .expected = 0x8001 },
+        .{ .flush_cache = false, .class = dns.ResourceClass.CS, .expected = 0x0002 },
+        .{ .flush_cache = true, .class = dns.ResourceClass.CS, .expected = 0x8002 },
+    };
+
+    for (test_cases) |tc| {
+        // Create a minimal record with the test case settings
+        var record = ResourceRecord{
+            .name = dns.Name.init(testing.allocator),
+            .type = dns.ResourceType.A,
+            .class = tc.class,
+            .flush_cache = tc.flush_cache,
+            .ttl = 3600,
+            .rlength = 4,
+            .rdata = .{ .A = [4]u8{ 192, 168, 1, 1 } },
+            .allocator = testing.allocator,
+        };
+        defer record.deinit();
+
+        // Create a buffer to encode into
+        var buffer: [64]u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&buffer);
+        const writer = fbs.writer();
+
+        // Encode the record
+        try record.encode(writer);
+
+        // Check the class bytes (skip over the name and type bytes - with empty name, that's 3 bytes)
+        const class_bytes = std.mem.readInt(u16, buffer[3..][0..2], .big);
+        try testing.expectEqual(tc.expected, class_bytes);
+    }
+}
+
+test "ResourceRecord - Round trip with flush cache flag" {
+    // Create a full record with flush cache flag set
+    var record = try ResourceRecord.createA(testing.allocator, "example.com", [4]u8{ 192, 168, 1, 1 }, 3600, true // flush_cache flag
+    );
+    defer record.deinit();
+
+    // Verify the flag is set correctly in the created record
+    try testing.expect(record.flush_cache);
+
+    // Encode to wire format
+    var buffer: [256]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&buffer);
+    try record.encode(fbs.writer());
+    const encoded_len = fbs.pos;
+
+    // Parse the encoded data
+    var read_fbs = std.io.fixedBufferStream(buffer[0..encoded_len]);
+    var parsed_record = try ResourceRecord.decode(testing.allocator, read_fbs.reader());
+    defer parsed_record.deinit();
+
+    // Verify flush_cache flag was preserved
+    try testing.expect(parsed_record.flush_cache);
+    try testing.expectEqual(record.class, parsed_record.class);
+    try testing.expectEqual(record.type, parsed_record.type);
+    try testing.expectEqual(record.ttl, parsed_record.ttl);
+    try testing.expectEqualSlices(u8, &record.rdata.A, &parsed_record.rdata.A);
+
+    // Verify the domain name was preserved
+    const original_name = try record.name.toOwnedSlice(testing.allocator);
+    defer testing.allocator.free(original_name);
+    const parsed_name = try parsed_record.name.toOwnedSlice(testing.allocator);
+    defer testing.allocator.free(parsed_name);
+    try testing.expectEqualStrings(original_name, parsed_name);
+}
+
+test "ResourceRecord - Factory functions preserve flush cache flag" {
+    // Test a few factory functions with flush_cache = true
+
+    // A record
+    {
+        var record = try ResourceRecord.createA(testing.allocator, "example.com", [4]u8{ 192, 168, 1, 1 }, 3600, true // flush_cache flag
+        );
+        defer record.deinit();
+        try testing.expect(record.flush_cache);
+    }
+
+    // AAAA record
+    {
+        var record = try ResourceRecord.createAAAA(testing.allocator, "example.com", [16]u8{
+            0x20, 0x01, 0x0d, 0xb8, 0x85, 0xa3, 0x00, 0x00,
+            0x00, 0x00, 0x8a, 0x2e, 0x03, 0x70, 0x73, 0x34,
+        }, 3600, true // flush_cache flag
+        );
+        defer record.deinit();
+        try testing.expect(record.flush_cache);
+    }
+
+    // TXT record
+    {
+        var record = try ResourceRecord.createTXT(testing.allocator, "example.com", "v=spf1 include:_spf.example.com ~all", 3600, true // flush_cache flag
+        );
+        defer record.deinit();
+        try testing.expect(record.flush_cache);
+    }
+}
+
+test "ResourceRecord - Mask constants for flush cache" {
+    // Verify correct mask constants are defined
+    try testing.expectEqual(@as(u16, 0x8000), FLUSH_MASK);
+    try testing.expectEqual(@as(u16, 0x7FFF), CLASS_MASK);
+
+    // Test masks are applied correctly
+    const class_value: u16 = 0x0001; // IN class
+    const with_flush: u16 = class_value | FLUSH_MASK;
+
+    try testing.expectEqual(@as(u16, 0x8001), with_flush);
+    try testing.expectEqual(@as(u16, 0x0001), with_flush & CLASS_MASK);
+    try testing.expectEqual(@as(u16, 0x8000), with_flush & FLUSH_MASK);
 }
