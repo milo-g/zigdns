@@ -5,7 +5,7 @@ A DNS protocol library for Zig, offering robust functionality for DNS packet par
 ## Features
 
 - **Complete DNS packet handling**: Parse and construct DNS packets according to RFC standards.
-- **Compression handling**: Supports parsing compressed names.
+- **Compressed name parsing**: Supports parsing compressed names.
 - **Support for mDNS**: Implements mDNS query/record specific flags for unicast-desired and flush-cache.
 - **Resource Record Support**: Includes comprehensive support for common DNS record types:
   - A (IPv4 addresses)
@@ -19,6 +19,7 @@ A DNS protocol library for Zig, offering robust functionality for DNS packet par
 
 ### Limitations
 
+- **Encoding compressed names**: Writing compressed packets is not supported at this time.
 - **EDNS**: Extended DNS records OPT, SIG, and others are not supported at this time.
 - **EDNS - Additional Records**: Additional EDNS record parsing is skipped.
 
