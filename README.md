@@ -28,7 +28,7 @@ A DNS protocol library for Zig, offering robust functionality for DNS packet par
 Add ZigDNS to your project:
 
 ```bash
-zig fetch --save="dns" https://github.com/milo-g/zigdns/archive/refs/tags/0.2.1.tar.gz
+zig fetch --save="dns" https://github.com/milo-g/zigdns/archive/refs/tags/0.3.0.tar.gz
 ```
 
 Then in your `build.zig`:
