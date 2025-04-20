@@ -6,5 +6,6 @@ pub const ResourceClass = @import("enums.zig").ResourceClass;
 pub const Question = @import("question.zig").Question;
 pub const ResourceRecord = @import("record.zig").ResourceRecord;
 pub const Packet = @import("packet.zig").Packet;
+pub const PacketReader = @import("reader.zig").Reader;
 
 pub const ParseError = @import("errors.zig").ParseError;

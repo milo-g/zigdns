@@ -3,4 +3,7 @@ pub const ParseError = error{
     InvalidLabelLength,
     InvalidTotalLength,
     EndOfStream,
+    CompressionLoopDetected,
+    PointerLimitReached,
+    PointerOutOfBounds,
 };

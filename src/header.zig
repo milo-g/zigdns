@@ -4,6 +4,7 @@ const cpu = builtin.cpu;
 const mem = std.mem;
 
 const ParseError = @import("lib.zig").ParseError;
+const PacketReader = @import("lib.zig").PacketReader;
 
 pub const HeaderSize: usize = 12;
 
@@ -153,6 +154,28 @@ pub const Flags = packed struct {
 
         return raw_flags;
     }
+    
+    pub fn format(
+        self: @This(),
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = fmt;
+        _ = options;
+        try writer.writeAll("Flags{ ");
+        try writer.print("qr: {}, ", .{self.qr});
+        try writer.print("opcode: {}, ", .{self.opcode});
+        try writer.print("aa: {}, ", .{self.aa});
+        try writer.print("tc: {}, ", .{self.tc});
+        try writer.print("rd: {}, ", .{self.rd});
+        try writer.print("ra: {}, ", .{self.ra});
+        try writer.print("z: {}, ", .{self.z});
+        try writer.print("ad: {}, ", .{self.ad});
+        try writer.print("cd: {}, ", .{self.cd});
+        try writer.print("rcode: {}", .{self.rcode});
+        try writer.writeAll(" }");
+    }
 };
 
 /// DNS header (RFC 1035)
@@ -175,9 +198,10 @@ pub const Header = packed struct {
     /// Additional count
     ar: u16 = 0,
 
-    pub fn decode(reader: anytype) !Header {
+    pub fn decode(reader: *PacketReader) !Header {
         var bytes: [HeaderSize]u8 = undefined;
-        _ = try reader.readAll(&bytes);
+        var reader_copy = reader;
+        _ = try reader_copy.readAll(&bytes);
 
         const flags = Flags.decodeSlice(bytes[2..4]);
 
@@ -202,6 +226,36 @@ pub const Header = packed struct {
         try writer.writeInt(u16, self.ns, .big);
         try writer.writeInt(u16, self.ar, .big);
     }
+
+    pub fn format(
+        self: @This(),
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = fmt;
+        _ = options;
+        try writer.writeAll("Header{ ");
+        try writer.print("id: {d}, ", .{self.id});
+
+        // Format flags as a nested struct
+        try writer.writeAll("flags: { ");
+        try writer.print("qr: {}, ", .{self.flags.qr});
+        try writer.print("opcode: {}, ", .{self.flags.opcode});
+        try writer.print("aa: {}, ", .{self.flags.aa});
+        try writer.print("tc: {}, ", .{self.flags.tc});
+        try writer.print("rd: {}, ", .{self.flags.rd});
+        try writer.print("ra: {}, ", .{self.flags.ra});
+        try writer.print("z: {}, ", .{self.flags.z});
+        try writer.print("rcode: {}", .{self.flags.rcode});
+        try writer.writeAll(" }, ");
+
+        try writer.print("qdcount: {d}, ", .{self.qd});
+        try writer.print("ancount: {d}, ", .{self.an});
+        try writer.print("nscount: {d}, ", .{self.ns});
+        try writer.print("arcount: {d}", .{self.ar});
+        try writer.writeAll(" }");
+    }
 };
 
 test "Parse header from slice" {
@@ -214,9 +268,8 @@ test "Parse header from slice" {
         0x00, 0x00, // ARCOUNT: 0
     };
 
-    var stream = std.io.fixedBufferStream(&sample_header);
-    const reader = stream.reader();
-    const header = try Header.decode(reader);
+    var reader = PacketReader.init(&sample_header);
+    const header = try Header.decode(&reader);
 
     try std.testing.expectEqual(@as(u16, 0x1234), header.id);
 

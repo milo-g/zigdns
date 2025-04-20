@@ -4,7 +4,9 @@ A DNS protocol library for Zig, offering robust functionality for DNS packet par
 
 ## Features
 
-- **Complete DNS packet handling**: Parse and construct DNS packets according to RFC standards
+- **Complete DNS packet handling**: Parse and construct DNS packets according to RFC standards.
+- **Compression handling**: Supports parsing compressed names.
+- **Support for mDNS**: Implements mDNS query/record specific flags for unicast-desired and flush-cache.
 - **Resource Record Support**: Includes comprehensive support for common DNS record types:
   - A (IPv4 addresses)
   - AAAA (IPv6 addresses)
@@ -14,14 +16,11 @@ A DNS protocol library for Zig, offering robust functionality for DNS packet par
   - TXT (Text records)
   - PTR (Pointer records)
   - SRV (Service records)
-- **Flexible API**: Simple interface for creating DNS queries and responses
-- **RFC Compliant**: Implements DNS packet format according to RFC 1035 and related standards
-- **Memory Safe**: Full control over allocations with explicit memory management
-- **Support for mDNS**: Implements mDNS query/record specific flags for unicast-desired and flush-cache.
 
 ### Limitations
 
-- **Pointers**: Currently parsing packets with name pointers is unsupported.
+- **EDNS**: Extended DNS records OPT, SIG, and others are not supported at this time.
+- **EDNS - Additional Records**: Additional EDNS record parsing is skipped.
 
 ## Installation
 

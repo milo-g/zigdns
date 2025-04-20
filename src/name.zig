@@ -3,9 +3,10 @@ const io = std.io;
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const ParseError = @import("lib.zig").ParseError;
+const PacketReader = @import("lib.zig").PacketReader;
 
-pub const LABEL_MAX_LENGTH: u8 = 63;
-pub const NAME_MAX_LENGTH: u8 = 255;
+const LABEL_MAX_LENGTH: u8 = 63;
+const NAME_MAX_LENGTH: u8 = 255;
 
 /// DNS Name in name encoding format.
 pub const Name = struct {
@@ -29,37 +30,72 @@ pub const Name = struct {
         self.labels.deinit();
     }
 
-    /// Parses DNS name from a reader, assuming the first length byte is at the beginning of reader.
-    pub fn parse(self: *Name, reader: anytype) !void {
-        var total: usize = 0;
+    /// Parses DNS name from a packet reader, assuming the beginning length byte is at the beginning of reader.
+    /// Correctly follows pointers up to MAX_PTRS amount, set to 5.
+    pub fn parse(self: *Name, reader: *PacketReader) !void {
+        const PTR_FLAG: u8 = 0x3;
+        const PTR_MASK: u16 = 0x3FFF;
+        const MAX_PTRS = 5;
 
-        while (total < 255) {
-            // read length byte
-            const len = try reader.readByte();
-            total += 1;
+        var ptr_start: usize = 0;
+        var ptr_count: usize = 0;
+        var total_length: usize = 0;
 
-            if (len > LABEL_MAX_LENGTH) {
+        while (total_length < NAME_MAX_LENGTH) {
+            var len_byte = try reader.peekByte();
+            const is_ptr = (len_byte >> 6) == PTR_FLAG;
+
+            if (is_ptr) {
+                if (ptr_count >= MAX_PTRS) {
+                    return ParseError.PointerLimitReached;
+                }
+
+                if (ptr_count == 0) {
+                    ptr_start = reader.position();
+                }
+
+                const ptr = try reader.readInt(u16, .big) & PTR_MASK;
+                if (ptr >= reader.length()) {
+                    return ParseError.PointerOutOfBounds;
+                }
+
+                try reader.seekTo(@as(usize, ptr));
+                total_length += 2;
+                ptr_count += 1;
+                continue;
+            }
+
+            len_byte = try reader.readByte();
+            total_length += 1;
+
+            if (len_byte > LABEL_MAX_LENGTH) {
+                std.debug.print("length is {d}\n", .{len_byte});
                 return ParseError.InvalidLabelLength;
             }
 
-            if (len == 0) {
+            if (len_byte == 0) {
                 break;
             }
 
-            const label = try self.allocator.alloc(u8, len);
+            const label = try self.allocator.alloc(u8, len_byte);
             errdefer self.allocator.free(label);
 
             const label_read = try reader.readAll(label);
-            if (label_read != len) {
+            if (label_read != len_byte) {
                 return error.EndOfStream;
             }
-            total += label_read;
 
+            total_length += label_read;
             try self.labels.append(label);
         }
 
-        if (total > 255) {
+        if (total_length > NAME_MAX_LENGTH) {
             return ParseError.InvalidTotalLength;
+        }
+
+        if (ptr_count > 0) {
+            try reader.seekTo(ptr_start + @sizeOf(u16));
+            return;
         }
     }
 
@@ -96,8 +132,7 @@ pub const Name = struct {
     }
 
     pub fn fromString(allocator: Allocator, name: []const u8) !Name {
-        var stream = std.io.fixedBufferStream(name);
-        const reader = stream.reader();
+        var reader = PacketReader.init(name);
 
         var qname = Name.init(allocator);
         errdefer qname.deinit();
@@ -117,7 +152,7 @@ pub const Name = struct {
         return qname;
     }
 
-    pub fn fromWire(allocator: Allocator, reader: anytype) !Name {
+    pub fn fromWire(allocator: Allocator, reader: *PacketReader) !Name {
         var name = Name.init(allocator);
         errdefer name.deinit();
 
@@ -155,13 +190,12 @@ test "Name.parse - valid domain name" {
         3, 'c', 'o', 'm', 0,
     };
 
-    var fixed_buffer_stream = std.io.fixedBufferStream(&test_data);
-    const reader = fixed_buffer_stream.reader();
+    var reader = PacketReader.init(&test_data);
 
     var name = Name.init(testing.allocator);
     defer name.deinit();
 
-    try name.parse(reader);
+    try name.parse(&reader);
 
     // Verify the correct number of labels
     try testing.expectEqual(@as(usize, 2), name.labels.items.len);
@@ -203,14 +237,13 @@ test "Name.parse - long domain name" {
         test_data[i] = 'd';
     }
 
-    var fixed_buffer_stream = std.io.fixedBufferStream(&test_data);
-    const reader = fixed_buffer_stream.reader();
+    var reader = PacketReader.init(&test_data);
 
     var name = Name.init(testing.allocator);
     defer name.deinit();
 
     // Should just fit within 255 bytes
-    try name.parse(reader);
+    try name.parse(&reader);
 
     // Verify label counts
     try testing.expectEqual(@as(usize, 4), name.labels.items.len);
@@ -252,14 +285,13 @@ test "Name.parse - domain name too long" {
     test_data[258] = 'o';
     test_data[259] = 'm';
 
-    var fixed_buffer_stream = std.io.fixedBufferStream(&test_data);
-    const reader = fixed_buffer_stream.reader();
+    var reader = PacketReader.init(&test_data);
 
     var name = Name.init(testing.allocator);
     defer name.deinit();
 
     // Should fail with InvalidTotalLength
-    const result = name.parse(reader);
+    const result = name.parse(&reader);
     try testing.expectError(ParseError.InvalidTotalLength, result);
 }
 
@@ -270,13 +302,12 @@ test "Name.toOwnedSlice" {
         3, 'c', 'o', 'm', 0,
     };
 
-    var fixed_buffer_stream = std.io.fixedBufferStream(&test_data);
-    const reader = fixed_buffer_stream.reader();
+    var reader = PacketReader.init(&test_data);
 
     var name = Name.init(testing.allocator);
     defer name.deinit();
 
-    try name.parse(reader);
+    try name.parse(&reader);
 
     // Convert to owned slice
     const domain_str = try name.toOwnedSlice(testing.allocator);
@@ -290,13 +321,12 @@ test "Name.toOwnedSlice - root domain" {
     // Test data for root domain (just a zero byte)
     const test_data = [_]u8{0};
 
-    var fixed_buffer_stream = std.io.fixedBufferStream(&test_data);
-    const reader = fixed_buffer_stream.reader();
+    var reader = PacketReader.init(&test_data);
 
     var name = Name.init(testing.allocator);
     defer name.deinit();
 
-    try name.parse(reader);
+    try name.parse(&reader);
 
     // Convert to owned slice
     const domain_str = try name.toOwnedSlice(testing.allocator);
@@ -315,13 +345,12 @@ test "Name.toOwnedSlice - multiple labels" {
         'o', 'm', 0,
     };
 
-    var fixed_buffer_stream = std.io.fixedBufferStream(&test_data);
-    const reader = fixed_buffer_stream.reader();
+    var reader = PacketReader.init(&test_data);
 
     var name = Name.init(testing.allocator);
     defer name.deinit();
 
-    try name.parse(reader);
+    try name.parse(&reader);
 
     // Convert to owned slice
     const domain_str = try name.toOwnedSlice(testing.allocator);
@@ -341,4 +370,58 @@ test "Name.fromString - basic domain parsing" {
     try testing.expectEqual(@as(usize, 2), qname.labels.items.len);
     try testing.expectEqualStrings("example", qname.labels.items[0]);
     try testing.expectEqualStrings("com", qname.labels.items[1]);
+}
+
+test "Name.parse - with compression pointer" {
+    const allocator = testing.allocator;
+
+    // Create a DNS packet with a pointer
+    // First name: [3]www[7]example[3]com[0]
+    // Second name: [3]ftp[pointer to offset 4]
+    var packet = [_]u8{
+        // First name at offset 0
+        3,   'w', 'w', 'w',
+        7,   'e', 'x', 'a',
+        'm', 'p', 'l', 'e',
+        3,   'c', 'o', 'm',
+        0,
+        // Second name at offset 17 with pointer to "example.com" at offset 4
+        3, 'f', 't', 'p', 0xC0, 0x04, // Pointer: 0xC4 (11000000) indicates pointer, 4 is offset
+    };
+
+    // Parse first name
+    {
+        var reader = PacketReader.init(&packet);
+        var name = Name.init(allocator);
+        defer name.deinit();
+
+        try name.parse(&reader);
+
+        try testing.expectEqual(@as(usize, 3), name.labels.items.len);
+        try testing.expectEqualStrings("www", name.labels.items[0]);
+        try testing.expectEqualStrings("example", name.labels.items[1]);
+        try testing.expectEqualStrings("com", name.labels.items[2]);
+
+        // Reader should be at position 17
+        try testing.expectEqual(@as(usize, 17), reader.position());
+    }
+
+    // Parse second name with pointer
+    {
+        var reader = PacketReader.init(&packet);
+        try reader.seekTo(17); // Start at the second name
+
+        var name = Name.init(allocator);
+        defer name.deinit();
+
+        try name.parse(&reader);
+
+        try testing.expectEqual(@as(usize, 3), name.labels.items.len);
+        try testing.expectEqualStrings("ftp", name.labels.items[0]);
+        try testing.expectEqualStrings("example", name.labels.items[1]);
+        try testing.expectEqualStrings("com", name.labels.items[2]);
+
+        // Reader should be at position 17 + 6 (after reading "ftp" and the pointer)
+        try testing.expectEqual(@as(usize, 23), reader.position());
+    }
 }

@@ -120,7 +120,7 @@ pub const Packet = struct {
         self.additional.deinit();
     }
 
-    pub fn parse(self: *Packet, reader: anytype) !void {
+    pub fn parse(self: *Packet, reader: *dns.PacketReader) !void {
         self.header = try dns.Header.decode(reader);
 
         for (0..self.header.qd) |_| {
@@ -138,13 +138,14 @@ pub const Packet = struct {
             try self.nameservers.append(nameserver);
         }
 
+        // TODO: handle additional records (OPT, SIG, etc.)
         for (0..self.header.ar) |_| {
-            const additional = try dns.ResourceRecord.decode(self.allocator, reader);
-            try self.additional.append(additional);
+            // const additional = try dns.ResourceRecord.decode(self.allocator, reader);
+            // try self.additional.append(additional);
         }
     }
 
-    pub fn decode(allocator: Allocator, reader: anytype) !Packet {
+    pub fn decode(allocator: Allocator, reader: *dns.PacketReader) !Packet {
         var packet = Packet.init(allocator);
         try packet.parse(reader);
 
@@ -183,6 +184,74 @@ pub const Packet = struct {
 
         self.header.an += 1;
         try self.answers.append(record);
+    }
+
+    pub fn format(
+        self: @This(),
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        try writer.writeAll("Packet{\n");
+
+        // Format header
+        try writer.writeAll("  header: ");
+        try self.header.format("", .{}, writer);
+        try writer.writeAll(",\n");
+
+        // Format questions
+        try writer.writeAll("  questions: [\n");
+        for (self.questions.items, 0..) |question, i| {
+            try writer.writeAll("    ");
+            try question.format("", .{}, writer);
+            if (i < self.questions.items.len - 1) {
+                try writer.writeAll(",\n");
+            } else {
+                try writer.writeAll("\n");
+            }
+        }
+        try writer.writeAll("  ],\n");
+
+        // Format answers
+        try writer.writeAll("  answers: [\n");
+        for (self.answers.items, 0..) |answer, i| {
+            try writer.writeAll("    ");
+            try answer.format("", .{}, writer);
+            if (i < self.answers.items.len - 1) {
+                try writer.writeAll(",\n");
+            } else {
+                try writer.writeAll("\n");
+            }
+        }
+        try writer.writeAll("  ],\n");
+
+        // Format nameservers
+        try writer.writeAll("  nameservers: [\n");
+        for (self.nameservers.items, 0..) |ns, i| {
+            try writer.writeAll("    ");
+            try ns.format("", .{}, writer);
+            if (i < self.nameservers.items.len - 1) {
+                try writer.writeAll(",\n");
+            } else {
+                try writer.writeAll("\n");
+            }
+        }
+        try writer.writeAll("  ],\n");
+
+        // Format additional records
+        try writer.writeAll("  additional: [\n");
+        for (self.additional.items, 0..) |ar, i| {
+            try writer.writeAll("    ");
+            try ar.format("", .{}, writer);
+            if (i < self.additional.items.len - 1) {
+                try writer.writeAll(",\n");
+            } else {
+                try writer.writeAll("\n");
+            }
+        }
+        try writer.writeAll("  ]\n");
+
+        try writer.writeAll("}");
     }
 
     fn createRecord(self: *Packet, config: RecordConfig) !dns.ResourceRecord {
@@ -241,10 +310,8 @@ test "Packet encoding and decoding - simple query" {
     const encoded_len = fbs.pos;
 
     // Decoding
-    var read_fbs = std.io.fixedBufferStream(buffer[0..encoded_len]);
-    const reader = read_fbs.reader();
-
-    var decoded_packet = try Packet.decode(testing.allocator, reader);
+    var reader = dns.PacketReader.init(buffer[0..encoded_len]);
+    var decoded_packet = try Packet.decode(testing.allocator, &reader);
     defer decoded_packet.deinit();
 
     try testing.expectEqual(@as(u16, 1234), decoded_packet.header.id);
@@ -398,8 +465,8 @@ test "Question - unicast flag handling" {
     try packet.encode(fbs.writer());
     const encoded_len = fbs.pos;
 
-    var read_fbs = std.io.fixedBufferStream(buffer[0..encoded_len]);
-    var decoded_packet = try Packet.decode(testing.allocator, read_fbs.reader());
+    var reader = dns.PacketReader.init(buffer[0..encoded_len]);
+    var decoded_packet = try Packet.decode(testing.allocator, &reader);
     defer decoded_packet.deinit();
 
     try testing.expectEqual(@as(u16, 2), decoded_packet.header.qd);
@@ -429,8 +496,8 @@ test "Answer - cache flush flag handling" {
     try packet.encode(fbs.writer());
     const encoded_len = fbs.pos;
 
-    var read_fbs = std.io.fixedBufferStream(buffer[0..encoded_len]);
-    var decoded_packet = try Packet.decode(testing.allocator, read_fbs.reader());
+    var reader = dns.PacketReader.init(buffer[0..encoded_len]);
+    var decoded_packet = try Packet.decode(testing.allocator, &reader);
     defer decoded_packet.deinit();
 
     try testing.expectEqual(@as(u16, 2), decoded_packet.header.an);
@@ -488,8 +555,8 @@ test "Mixed mDNS flags - unicast question and flush cache answers" {
     try packet.encode(fbs.writer());
     const encoded_len = fbs.pos;
 
-    var read_fbs = std.io.fixedBufferStream(buffer[0..encoded_len]);
-    var decoded_packet = try Packet.decode(testing.allocator, read_fbs.reader());
+    var reader = dns.PacketReader.init(buffer[0..encoded_len]);
+    var decoded_packet = try Packet.decode(testing.allocator, &reader);
     defer decoded_packet.deinit();
 
     // Verify decoded flags
@@ -528,8 +595,8 @@ test "All record types with flush cache flags" {
     try packet.encode(fbs.writer());
     const encoded_len = fbs.pos;
 
-    var read_fbs = std.io.fixedBufferStream(buffer[0..encoded_len]);
-    var decoded_packet = try Packet.decode(testing.allocator, read_fbs.reader());
+    var reader = dns.PacketReader.init(buffer[0..encoded_len]);
+    var decoded_packet = try Packet.decode(testing.allocator, &reader);
     defer decoded_packet.deinit();
 
     // Verify all decoded records have flush set

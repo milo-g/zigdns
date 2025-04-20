@@ -50,7 +50,7 @@ pub const ResourceRecord = struct {
         self.rdata.deinit();
     }
 
-    pub fn parse(self: *ResourceRecord, reader: anytype) !void {
+    pub fn parse(self: *ResourceRecord, reader: *dns.PacketReader) !void {
         try self.name.parse(reader);
         self.type = @enumFromInt(try reader.readInt(std.meta.Tag(dns.ResourceType), .big));
 
@@ -63,7 +63,7 @@ pub const ResourceRecord = struct {
         self.rdata = try ResourceData.decode(self.allocator, reader, self.type, self.rlength);
     }
 
-    pub fn decode(allocator: Allocator, reader: anytype) !ResourceRecord {
+    pub fn decode(allocator: Allocator, reader: *dns.PacketReader) !ResourceRecord {
         var record = ResourceRecord.init(allocator);
         try record.parse(reader);
 
@@ -192,6 +192,25 @@ pub const ResourceRecord = struct {
 
         return record;
     }
+
+    pub fn format(
+        self: @This(),
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        try writer.writeAll("ResourceRecord{ name: ");
+        try self.name.format("", .{}, writer);
+        try writer.print(", type: {}, class: {}, ttl: {}", .{ self.type, self.class, self.ttl });
+
+        if (self.flush) {
+            try writer.writeAll(", flush: true");
+        }
+
+        try writer.writeAll(", data: ");
+        try self.rdata.format("", .{}, writer);
+        try writer.writeAll(" }");
+    }
 };
 
 pub const ResourceData = union(dns.ResourceType) {
@@ -254,7 +273,7 @@ pub const ResourceData = union(dns.ResourceType) {
         }
     }
 
-    pub fn decode(allocator: Allocator, reader: anytype, rtype: dns.ResourceType, rlen: usize) !ResourceData {
+    pub fn decode(allocator: Allocator, reader: *dns.PacketReader, rtype: dns.ResourceType, rlen: usize) !ResourceData {
         return switch (rtype) {
             .A => try ResourceData.decodeA(reader, rlen),
             .AAAA => try ResourceData.decodeAAAA(reader, rlen),
@@ -268,9 +287,10 @@ pub const ResourceData = union(dns.ResourceType) {
         };
     }
 
-    fn decodeA(reader: anytype, len: usize) !ResourceData {
+    fn decodeA(reader: *dns.PacketReader, len: usize) !ResourceData {
         var ip: [4]u8 = undefined;
-        const br = try reader.readAll(&ip);
+        var reader_copy = reader;
+        const br = try reader_copy.readAll(&ip);
         if (br != len) {
             return ParseError.EndOfStream;
         }
@@ -280,9 +300,10 @@ pub const ResourceData = union(dns.ResourceType) {
         };
     }
 
-    fn decodeAAAA(reader: anytype, len: usize) !ResourceData {
+    fn decodeAAAA(reader: *dns.PacketReader, len: usize) !ResourceData {
         var ip: [16]u8 = undefined;
-        const br = try reader.readAll(&ip);
+        var reader_copy = reader;
+        const br = try reader_copy.readAll(&ip);
         if (br != len) {
             return ParseError.EndOfStream;
         }
@@ -292,7 +313,7 @@ pub const ResourceData = union(dns.ResourceType) {
         };
     }
 
-    fn decodeTXT(allocator: Allocator, reader: anytype, len: usize) !ResourceData {
+    fn decodeTXT(allocator: Allocator, reader: *dns.PacketReader, len: usize) !ResourceData {
         const data = try allocator.alloc(u8, len);
         errdefer allocator.free(data);
         const br = try reader.readAll(data);
@@ -308,29 +329,30 @@ pub const ResourceData = union(dns.ResourceType) {
         };
     }
 
-    fn decodeCNAME(allocator: Allocator, reader: anytype) !ResourceData {
+    fn decodeCNAME(allocator: Allocator, reader: *dns.PacketReader) !ResourceData {
         const name = try dns.Name.fromWire(allocator, reader);
         return .{
             .CNAME = name,
         };
     }
 
-    fn decodeNS(allocator: Allocator, reader: anytype) !ResourceData {
+    fn decodeNS(allocator: Allocator, reader: *dns.PacketReader) !ResourceData {
         const name = try dns.Name.fromWire(allocator, reader);
         return .{
             .NS = name,
         };
     }
 
-    fn decodePTR(allocator: Allocator, reader: anytype) !ResourceData {
+    fn decodePTR(allocator: Allocator, reader: *dns.PacketReader) !ResourceData {
         const name = try dns.Name.fromWire(allocator, reader);
         return .{
             .PTR = name,
         };
     }
 
-    fn decodeMX(allocator: Allocator, reader: anytype) !ResourceData {
-        const priority = try reader.readInt(u16, .big);
+    fn decodeMX(allocator: Allocator, reader: *dns.PacketReader) !ResourceData {
+        var reader_copy = reader;
+        const priority = try reader_copy.readInt(u16, .big);
         const exchange = try dns.Name.fromWire(allocator, reader);
 
         return .{
@@ -341,8 +363,9 @@ pub const ResourceData = union(dns.ResourceType) {
         };
     }
 
-    fn decodeSRV(allocator: Allocator, reader: anytype) !ResourceData {
-        const priority = try reader.readInt(u16, .big);
+    fn decodeSRV(allocator: Allocator, reader: *dns.PacketReader) !ResourceData {
+        var reader_copy = reader;
+        const priority = try reader_copy.readInt(u16, .big);
         const weight = try reader.readInt(u16, .big);
         const port = try reader.readInt(u16, .big);
         const target = try dns.Name.fromWire(allocator, reader);
@@ -370,6 +393,55 @@ pub const ResourceData = union(dns.ResourceType) {
             else => 0,
         };
     }
+
+    pub fn format(
+        self: @This(),
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        switch (self) {
+            .A => |ip| try writer.print("A{{ {}.{}.{}.{} }}", .{ ip[0], ip[1], ip[2], ip[3] }),
+            .AAAA => |ip| {
+                try writer.writeAll("AAAA{ ");
+                // Format IPv6 address in standard notation
+                inline for (0..8) |i| {
+                    const segment = @as(u16, ip[i * 2]) << 8 | ip[i * 2 + 1];
+                    try writer.print("{x}", .{segment});
+                    if (i < 7) try writer.writeAll(":");
+                }
+                try writer.writeAll(" }");
+            },
+            .TXT => |txt| try writer.print("TXT{{ \"{s}\" }}", .{txt.data}),
+            .CNAME => |cname| {
+                try writer.writeAll("CNAME{ ");
+                try cname.format("", .{}, writer);
+                try writer.writeAll(" }");
+            },
+            .NS => |ns| {
+                try writer.writeAll("NS{ ");
+                try ns.format("", .{}, writer);
+                try writer.writeAll(" }");
+            },
+            .PTR => |ptr| {
+                try writer.writeAll("PTR{ ");
+                try ptr.format("", .{}, writer);
+                try writer.writeAll(" }");
+            },
+            .MX => |mx| {
+                try writer.print("MX{{ priority: {}, exchange: ", .{mx.priority});
+                try mx.exchange.format("", .{}, writer);
+                try writer.writeAll(" }");
+            },
+            .SRV => |srv| {
+                try writer.print("SRV{{ priority: {}, weight: {}, port: {}, target: ", .{ srv.priority, srv.weight, srv.port });
+                try srv.target.format("", .{}, writer);
+                try writer.writeAll(" }");
+            },
+            .ALL => try writer.writeAll("ALL{}"),
+            .UNKNOWN => try writer.writeAll("UNKNOWN{}"),
+        }
+    }
 };
 
 const testing = std.testing;
@@ -391,10 +463,9 @@ test "ResourceData - A record encoding and decoding" {
     try testing.expectEqualSlices(u8, &ip, &buffer);
 
     // Now decode
-    var read_fbs = std.io.fixedBufferStream(&buffer);
-    const reader = read_fbs.reader();
+    var reader = dns.PacketReader.init(&buffer);
 
-    const decoded = try ResourceData.decodeA(reader, buffer.len);
+    const decoded = try ResourceData.decodeA(&reader, buffer.len);
 
     // Verify decoded data
     try testing.expectEqual(dns.ResourceType.A, std.meta.activeTag(decoded));
@@ -421,10 +492,9 @@ test "ResourceData - TXT record encoding and decoding" {
     try testing.expectEqualSlices(u8, txt_content, buffer[0..txt_content.len]);
 
     // Now decode
-    var read_fbs = std.io.fixedBufferStream(buffer[0..txt_content.len]);
-    const reader = read_fbs.reader();
+    var reader = dns.PacketReader.init(buffer[0..txt_content.len]);
 
-    var decoded = try ResourceData.decodeTXT(testing.allocator, reader, txt_content.len);
+    var decoded = try ResourceData.decodeTXT(testing.allocator, &reader, txt_content.len);
     defer decoded.deinit();
 
     // Verify decoded data
@@ -438,11 +508,10 @@ test "ResourceData - decode function with A record" {
     var buffer: [4]u8 = undefined;
     @memcpy(&buffer, &ip);
 
-    var fbs = std.io.fixedBufferStream(&buffer);
-    const reader = fbs.reader();
+    var reader = dns.PacketReader.init(&buffer);
 
     // Decode using the generic decode function
-    var decoded = try ResourceData.decode(testing.allocator, reader, .A, 4);
+    var decoded = try ResourceData.decode(testing.allocator, &reader, .A, 4);
 
     // Verify decoded data
     try testing.expectEqual(dns.ResourceType.A, std.meta.activeTag(decoded));
@@ -466,13 +535,12 @@ test "ResourceRecord - encode and parse A record" {
     try record.encode(&writer);
     const encoded_len = fbs.pos;
 
-    var read_fbs = std.io.fixedBufferStream(buffer[0..encoded_len]);
-    const reader = read_fbs.reader();
+    var reader = dns.PacketReader.init(buffer[0..encoded_len]);
 
     var parsed_record = ResourceRecord.init(testing.allocator);
     defer parsed_record.deinit();
 
-    try parsed_record.parse(reader);
+    try parsed_record.parse(&reader);
 
     // Verify parsed data
     try testing.expectEqual(dns.ResourceType.A, parsed_record.type);
@@ -502,10 +570,9 @@ test "ResourceData - SRV record encoding and decoding" {
     try srv_record.encode(&writer);
     const encoded_len = fbs.pos;
 
-    var read_fbs = std.io.fixedBufferStream(buffer[0..encoded_len]);
-    const reader = read_fbs.reader();
+    var reader = dns.PacketReader.init(buffer[0..encoded_len]);
 
-    var decoded = try ResourceData.decodeSRV(allocator, reader);
+    var decoded = try ResourceData.decodeSRV(allocator, &reader);
     defer decoded.deinit();
 
     try testing.expectEqual(dns.ResourceType.SRV, std.meta.activeTag(decoded));
@@ -536,10 +603,9 @@ test "ResourceData - CNAME record encoding and decoding" {
     try cname_record.encode(&writer);
     const encoded_len = fbs.pos;
 
-    var read_fbs = std.io.fixedBufferStream(buffer[0..encoded_len]);
-    const reader = read_fbs.reader();
+    var reader = dns.PacketReader.init(buffer[0..encoded_len]);
 
-    var decoded = try ResourceData.decodeCNAME(allocator, reader);
+    var decoded = try ResourceData.decodeCNAME(allocator, &reader);
     defer decoded.deinit();
 
     try testing.expectEqual(dns.ResourceType.CNAME, std.meta.activeTag(decoded));
@@ -567,10 +633,9 @@ test "ResourceData - NS record encoding and decoding" {
     try ns_record.encode(&writer);
     const encoded_len = fbs.pos;
 
-    var read_fbs = std.io.fixedBufferStream(buffer[0..encoded_len]);
-    const reader = read_fbs.reader();
+    var reader = dns.PacketReader.init(buffer[0..encoded_len]);
 
-    var decoded = try ResourceData.decodeNS(allocator, reader);
+    var decoded = try ResourceData.decodeNS(allocator, &reader);
     defer decoded.deinit();
 
     try testing.expectEqual(dns.ResourceType.NS, std.meta.activeTag(decoded));
@@ -598,10 +663,9 @@ test "ResourceData - PTR record encoding and decoding" {
     try ptr_record.encode(&writer);
     const encoded_len = fbs.pos;
 
-    var read_fbs = std.io.fixedBufferStream(buffer[0..encoded_len]);
-    const reader = read_fbs.reader();
+    var reader = dns.PacketReader.init(buffer[0..encoded_len]);
 
-    var decoded = try ResourceData.decodePTR(allocator, reader);
+    var decoded = try ResourceData.decodePTR(allocator, &reader);
     defer decoded.deinit();
 
     try testing.expectEqual(dns.ResourceType.PTR, std.meta.activeTag(decoded));
@@ -632,10 +696,9 @@ test "ResourceData - MX record encoding and decoding" {
     try mx_record.encode(&writer);
     const encoded_len = fbs.pos;
 
-    var read_fbs = std.io.fixedBufferStream(buffer[0..encoded_len]);
-    const reader = read_fbs.reader();
+    var reader = dns.PacketReader.init(buffer[0..encoded_len]);
 
-    var decoded = try ResourceData.decodeMX(allocator, reader);
+    var decoded = try ResourceData.decodeMX(allocator, &reader);
     defer decoded.deinit();
 
     try testing.expectEqual(dns.ResourceType.MX, std.meta.activeTag(decoded));
@@ -664,10 +727,9 @@ test "ResourceData - AAAA record encoding and decoding" {
 
     try testing.expectEqualSlices(u8, &ip, &buffer);
 
-    var read_fbs = std.io.fixedBufferStream(&buffer);
-    const reader = read_fbs.reader();
+    var reader = dns.PacketReader.init(&buffer);
 
-    const decoded = try ResourceData.decodeAAAA(reader, buffer.len);
+    const decoded = try ResourceData.decodeAAAA(&reader, buffer.len);
 
     try testing.expectEqual(dns.ResourceType.AAAA, std.meta.activeTag(decoded));
     try testing.expectEqualSlices(u8, &ip, &decoded.AAAA);
@@ -758,13 +820,12 @@ test "ResourceRecord - Flush cache flag parsing" {
         192, 168, 1, 1, // IP address
     };
 
-    var stream = std.io.fixedBufferStream(&flush_data);
-    const reader = stream.reader();
+    var reader = dns.PacketReader.init(&flush_data);
 
     var record = ResourceRecord.init(testing.allocator);
     defer record.deinit();
 
-    try record.parse(reader);
+    try record.parse(&reader);
 
     // Verify flush flag is set
     try testing.expect(record.flush);
@@ -782,13 +843,12 @@ test "ResourceRecord - Flush cache flag not set during parsing" {
         192, 168, 1, 1, // IP address
     };
 
-    var stream = std.io.fixedBufferStream(&no_flush_data);
-    const reader = stream.reader();
+    var reader = dns.PacketReader.init(&no_flush_data);
 
     var record = ResourceRecord.init(testing.allocator);
     defer record.deinit();
 
-    try record.parse(reader);
+    try record.parse(&reader);
 
     // Verify flush flag is not set
     try testing.expect(!record.flush);
@@ -852,8 +912,8 @@ test "ResourceRecord - Round trip with flush cache flag" {
     const encoded_len = fbs.pos;
 
     // Parse the encoded data
-    var read_fbs = std.io.fixedBufferStream(buffer[0..encoded_len]);
-    var parsed_record = try ResourceRecord.decode(testing.allocator, read_fbs.reader());
+    var reader = dns.PacketReader.init(buffer[0..encoded_len]);
+    var parsed_record = try ResourceRecord.decode(testing.allocator, &reader);
     defer parsed_record.deinit();
 
     // Verify flush flag was preserved

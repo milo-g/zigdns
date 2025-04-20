@@ -39,7 +39,7 @@ pub const Question = struct {
     }
 
     /// Parse DNS question
-    pub fn parse(self: *Question, reader: anytype) !void {
+    pub fn parse(self: *Question, reader: *dns.PacketReader) !void {
         // DNS question has format of
         // | QName | QType | U (1 bit) | QClass (15 bit) |
         try self.name.parse(reader);
@@ -67,7 +67,7 @@ pub const Question = struct {
     }
 
     /// Decode from wire
-    pub fn decode(allocator: Allocator, reader: anytype) !Question {
+    pub fn decode(allocator: Allocator, reader: *dns.PacketReader) !Question {
         var question = Question.init(allocator);
         errdefer question.deinit();
 
@@ -83,6 +83,21 @@ pub const Question = struct {
         // Class bytes are | U (1) | CLASS (15) |
         const class_bytes: u16 = (@as(u16, @intFromBool(self.unicast)) << 15) | @as(u16, @intFromEnum(self.class));
         try writer.writeInt(u16, class_bytes, .big);
+    }
+
+    pub fn format(
+        self: @This(),
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        try writer.writeAll("Question{ name: ");
+        try self.name.format("", .{}, writer);
+        try writer.print(", type: {}, class: {}", .{ self.type, self.class });
+        if (self.unicast) {
+            try writer.writeAll(", unicast: true");
+        }
+        try writer.writeAll(" }");
     }
 };
 
@@ -100,13 +115,12 @@ test "Question.parse - Parse valid question" {
         0x00, 0x01, // IN class
     };
 
-    var stream = std.io.fixedBufferStream(&sample_data);
-    const reader = stream.reader();
+    var reader = dns.PacketReader.init(&sample_data);
 
     var question = Question.init(testing.allocator);
     defer question.deinit();
 
-    try question.parse(reader);
+    try question.parse(&reader);
 
     const name = try question.name.toOwnedSlice(testing.allocator);
     defer testing.allocator.free(name);
@@ -124,13 +138,12 @@ test "Question.parse - Unknown type and class values" {
         0x56, 0x78, // Unusual class value (22136)
     };
 
-    var stream = std.io.fixedBufferStream(&unusual_data);
-    const reader = stream.reader();
+    var reader = dns.PacketReader.init(&unusual_data);
 
     var question = Question.init(testing.allocator);
     defer question.deinit();
 
-    try question.parse(reader);
+    try question.parse(&reader);
 
     try testing.expectEqual(dns.ResourceType.UNKNOWN, question.type);
     try testing.expectEqual(dns.ResourceClass.UNKNOWN, question.class);
@@ -143,14 +156,13 @@ test "Question.parse - Insufficient data" {
         0x00, // Only partial type data
     };
 
-    var stream = std.io.fixedBufferStream(&incomplete_data);
-    const reader = stream.reader();
+    var reader = dns.PacketReader.init(&incomplete_data);
 
     var question = Question.init(testing.allocator);
     defer question.deinit();
 
-    const result = question.parse(reader);
-    try testing.expectError(error.EndOfStream, result);
+    const result = question.parse(&reader);
+    try testing.expectError(error.EndOfFile, result);
 }
 
 test "Question.parse - Unicast flag set" {
@@ -162,13 +174,12 @@ test "Question.parse - Unicast flag set" {
         0x80, 0x01, // IN class with unicast bit set (0x8001)
     };
 
-    var stream = std.io.fixedBufferStream(&unicast_data);
-    const reader = stream.reader();
+    var reader = dns.PacketReader.init(&unicast_data);
 
     var question = Question.init(testing.allocator);
     defer question.deinit();
 
-    try question.parse(reader);
+    try question.parse(&reader);
 
     try testing.expect(question.unicast);
     try testing.expectEqual(dns.ResourceClass.IN, question.class);
@@ -183,13 +194,12 @@ test "Question.parse - Unicast flag not set" {
         0x00, 0x01, // IN class without unicast bit
     };
 
-    var stream = std.io.fixedBufferStream(&regular_data);
-    const reader = stream.reader();
+    var reader = dns.PacketReader.init(&regular_data);
 
     var question = Question.init(testing.allocator);
     defer question.deinit();
 
-    try question.parse(reader);
+    try question.parse(&reader);
 
     try testing.expect(!question.unicast);
     try testing.expectEqual(dns.ResourceClass.IN, question.class);
@@ -251,8 +261,8 @@ test "Question.roundtrip - Preserve unicast flag" {
     const encoded_len = encode_stream.pos;
 
     // Decode the question
-    var decode_stream = std.io.fixedBufferStream(buffer[0..encoded_len]);
-    var decoded = try Question.decode(testing.allocator, decode_stream.reader());
+    var reader = dns.PacketReader.init(buffer[0..encoded_len]);
+    var decoded = try Question.decode(testing.allocator, &reader);
     defer decoded.deinit();
 
     // Verify the unicast flag is preserved
