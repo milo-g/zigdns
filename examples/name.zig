@@ -20,16 +20,13 @@ pub fn main() !void {
     for (domains) |domain| {
         std.debug.print("Domain: '{s}'\n", .{domain});
 
-        // Create Name from string
         var name = try dns.Name.fromString(allocator, domain);
         defer name.deinit();
 
-        // Demonstrate toOwnedSlice
         const name_str = try name.toOwnedSlice(allocator);
         defer allocator.free(name_str);
         std.debug.print("  Converted back: '{s}'\n", .{name_str});
 
-        // Show labels
         std.debug.print("  Labels: {d}\n", .{name.labels.items.len});
         for (name.labels.items, 0..) |label, i| {
             std.debug.print("    {d}: '{s}'\n", .{ i, label });
@@ -54,12 +51,11 @@ pub fn main() !void {
         std.debug.print("\n\n", .{});
 
         // Decode from wire format
-        var read_fbs = std.io.fixedBufferStream(buffer[0..encoded_len]);
-        const reader = read_fbs.reader();
+        var reader = dns.PacketReader.init(buffer[0..encoded_len]);
 
         var decoded_name = dns.Name.init(allocator);
         defer decoded_name.deinit();
-        try decoded_name.parse(reader);
+        try decoded_name.parse(&reader);
 
         const decoded_str = try decoded_name.toOwnedSlice(allocator);
         defer allocator.free(decoded_str);

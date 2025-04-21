@@ -28,7 +28,7 @@ A DNS protocol library for Zig, offering robust functionality for DNS packet par
 Add ZigDNS to your project:
 
 ```bash
-zig fetch --save="dns" https://github.com/milo-g/zigdns/archive/refs/tags/0.3.0.tar.gz
+zig fetch --save="dns" https://github.com/milo-g/zigdns/archive/refs/tags/0.3.1.tar.gz
 ```
 
 Then in your `build.zig`:
@@ -127,10 +127,9 @@ const std = @import("std");
 const dns = @import("dns");
 
 pub fn parseDnsPacket(allocator: std.mem.Allocator, buffer: []const u8) !void {
-    var fbs = std.io.fixedBufferStream(buffer);
-    const reader = fbs.reader();
+    var reader = dns.PacketReader.init(buffer);
 
-    var packet = try dns.Packet.decode(allocator, reader);
+    var packet = try dns.Packet.decode(allocator, &reader);
     defer packet.deinit();
 
     // Access header fields

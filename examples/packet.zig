@@ -38,10 +38,9 @@ pub fn main() !void {
     std.debug.print("\n\n", .{});
 
     // Now decode the packet from the buffer
-    var read_fbs = std.io.fixedBufferStream(buffer[0..encoded_len]);
-    const reader = read_fbs.reader();
+    var reader = dns.PacketReader.init(buffer[0..encoded_len]);
 
-    var decoded = try dns.Packet.decode(allocator, reader);
+    var decoded = try dns.Packet.decode(allocator, &reader);
     defer decoded.deinit();
 
     // Print the decoded packet information
